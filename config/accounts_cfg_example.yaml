@@ -1,0 +1,44 @@
+accounts:
+    Main:
+        type: activebank-debit
+        username: USERNAME
+        card_number: XXXXXXXXXX
+        category_taggers:
+            regex:
+                Salary:
+                    - "(\\s|\\d|\\w|\\W)*VENCIMENTO(\\s|\\d|\\w|\\W)*"
+                Rent:
+                    - "TRF\\s\"*P\\/\\s*\\w*CASA"
+                Tolls:
+                    - "PAG\\sBXVAL\\s*-\\s\\d{4}\\sVIAVERDE"
+                Withdraw:
+                    - "LEV\\s*ATM\\s*\\d{4}(\\s|\\d|\\w|\\W)*"
+            historic_from:
+                    - "Main"
+    Precard:
+        type: activebank-precard
+        username: USERNAME
+        card_number: XXXXXXXXXXXXXXX
+        category_taggers:
+            historic_from:
+                - "Precard"
+            regex:
+                Withdraw:
+                    - "LEV\\s*ATM\\s*\\d{4}(\\s|\\d|\\w|\\W)*"
+transactions:
+  debt: "Debt"
+  income: "Income"
+  date_format: "%Y-%m-%d"
+repositories:
+  googlesheet:
+    scopes:
+      - https://www.googleapis.com/auth/spreadsheets
+    spreadsheet_id: "1UjskdKHskMmio78JsN2fKg1nqxtt_pcoywnBu2Ow"
+    credentials_path: "/full/path/to/credentials.json"
+    expenses_sheet_name: Expenses
+    expenses_start_cell: A1
+    metadata_sheet_name: Data
+    token_cache_path: "path/to/token.pickle"
+
+expense_fetcher_options:
+  tmp_dir_path: "path/to/tmp_dir"
