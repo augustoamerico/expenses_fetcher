@@ -137,6 +137,8 @@ class ExpenseFetcherShell(cmd.Cmd):
             parameters["apply_categories"] = self._parse_boolean(
                 parameters, "apply_categories"
             )
+        else:
+            parameters["apply_categories"] = True
         if "date_start" in parameters:
             parameters["date_start"] = self._parse_datetime(
                 parameters, "date_start", self.expense_fetcher.date_format

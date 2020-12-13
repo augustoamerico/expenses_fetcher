@@ -16,7 +16,7 @@ class ITransaction(ABC):
         self.value = value
         self.description = description
         self.is_income = is_income
-        self.category = None
+        self.category = ""
 
     def get_auth_date_str(self, date_format: str = "%Y/%m/%d") -> str:
         return self.auth_date.strftime(date_format)

@@ -24,7 +24,7 @@ class IAccountManager(ABC):
             for transaction in transactions:
                 tagger_iterable = iter(self.taggers)
                 try:
-                    while transaction.get_category() is None:
+                    while transaction.get_category() == "":
                         tagger = next(tagger_iterable)
                         transaction.set_category(
                             tagger.get_category(

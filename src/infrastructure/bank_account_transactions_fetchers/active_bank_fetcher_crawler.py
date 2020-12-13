@@ -21,7 +21,7 @@ from src.infrastructure.bank_account_transactions_fetchers.i_transactions_fetche
     ITransactionsFetcher,
 )
 
-LOGINPAGE = "https://www.activobank.pt/_loginV2/BlueMainLoginCdm.aspx"
+LOGINPAGE = "https://ind.activobank.pt/_loginV2/BlueMainLoginCdm.aspx?ReturnUrl=https%3a%2f%2find.activobank.pt%2fpt%2fprivate%2fdia-a-dia%2fPages%2fdia-a-dia.aspx"
 INPUTCODEIDS = [
     "BlueMainLoginControlCdm1_txt_1_position",
     "BlueMainLoginControlCdm1_txt_2_position",
