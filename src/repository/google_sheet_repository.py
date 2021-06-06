@@ -123,7 +123,10 @@ class GoogleSheetRepository(IRepository):
             .execute()
         )
         self.last_transaction_date_by_account = dict(result.get("values", []))
-        return self.last_transaction_date_by_account.get(account_name, None)
+        last_date = self.last_transaction_date_by_account.get(account_name, None)
+        if last_date is not None:
+            last_date = datetime.strptime(last_date, "%Y-%m-%d")
+        return last_date
 
     def push_categories(self, categories: List[str]) -> None:
         self.__upsert_range(categories, f"{self.metadata_sheet_name}!C2:C")

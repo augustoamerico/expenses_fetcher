@@ -20,6 +20,7 @@ args = parser.parse_args()
 print(args.config_file)
 
 password_getter = TTYPasswordGetter("Password for account {} :")
+password_getter_repo = TTYPasswordGetter("Password for repository {} :")
 config = yaml.load(open(args.config_file), Loader=yaml.FullLoader)
 
 
@@ -43,7 +44,9 @@ def build_expense_fetcher(config):
                 (
                     repository_name,
                     cfg_parser.parse_repository(
-                        config["repositories"][repository_name], repository_name
+                        config["repositories"][repository_name],
+                        repository_name,
+                        password_getter_repo,
                     ),
                 )
                 for repository_name in repo_cfg
@@ -161,7 +164,10 @@ class ExpenseFetcherShell(cmd.Cmd):
 
     def do_push(self, arg):
         parameters = parse(arg)
+        # try:
         self.expense_fetcher.push_transactions(**parameters)
+        # except Exception as e:
+        #    print(e)
 
     def do_remove(self, arg):
         parameters = parse(arg)
@@ -184,6 +190,13 @@ class ExpenseFetcherShell(cmd.Cmd):
                 ],
             )
         )
+
+    def do_pull_from_sink(self, arg):
+        parameters = parse(arg)
+        try:
+            self.expense_fetcher.pull_transactions_from_repository(**parameters)
+        except Exception as e:
+            print(e)
 
     def do_setup_google_api(self):
         """

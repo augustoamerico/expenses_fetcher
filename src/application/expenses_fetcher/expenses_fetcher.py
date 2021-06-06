@@ -53,17 +53,19 @@ class ExpensesFetcher:
                     date_get_from_repo = pivot_repository.get_last_transaction_date_for_account(
                         account_name
                     )
+
                     if date_get_from_repo is None:
                         date_start_fetched = datetime.strptime("1970-01-01", "%Y-%m-%d")
                     else:
-                        date_start_fetched = datetime.strptime(
-                            date_get_from_repo, "%Y-%m-%d"
-                        )
-                    date_start_fetched = date_start_fetched + timedelta(days=1)
+                        date_start_fetched = date_get_from_repo
+                    # date_start_fetched = date_start_fetched + timedelta(days=1)
+                    print(
+                        f"Reference data for account {account_name} is {date_start_fetched}"
+                    )
                 else:
                     date_start_fetched = date_start
                 if date_end is None:
-                    date_end_fetched = datetime.today() - timedelta(days=1)
+                    date_end_fetched = datetime.today()
                 else:
                     date_end_fetched = date_end
                 if date_start_fetched <= date_end_fetched:
@@ -97,12 +99,18 @@ class ExpensesFetcher:
     def get_account(self, account_name) -> IAccountManager:
         return self.accounts.get(account_name, None)
 
+    def pull_transactions_from_repository(self, repository: str):
+        if repository not in self.repositories:
+            raise Exception("repository unknown")
+        repo = self.repositories[repository]
+        self.staged_transactions.extend(repo.get_transactions())
+
     def push_transactions(self, repository_name: str = None):
         if repository_name is None:
             repository_iterator = iter(self.repositories.items())
         else:
             repository_iterator = iter(
-                list(repository_name, self.repositories.get(repository_name, None))
+                [(repository_name, self.repositories.get(repository_name, None))]
             )
 
         try:

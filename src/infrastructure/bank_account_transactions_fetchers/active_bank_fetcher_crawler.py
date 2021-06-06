@@ -351,7 +351,7 @@ class ActiveBankCrawler:
             elemInput.clear()
             elemInput.send_keys(self.password[code_digits[x] - 1])
         self.driver.find_element_by_id("divBtnLogOn").click()
-        sleep(3)
+        sleep(5)
         self.driver.find_element_by_id("_lnkBtnConfirm").click()
 
     def _log_in(self):
