@@ -12,7 +12,7 @@ from src.repository.i_repository import IRepository
 
 # SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
 # SAMPLE_SPREADSHEET_ID = '1GkSqLQHR8m88ZktbhJisN2fKg1nqxtt_pcoywnBu2Ow'
-# SAMPLE_RANGE_NAME = 'Expenses!C2:F'
+SAMPLE_RANGE_NAME = 'Expenses!C2:F'
 
 
 class GoogleSheetRepository(IRepository):
@@ -62,10 +62,31 @@ class GoogleSheetRepository(IRepository):
         return creds
 
     def get_transactions(self):
-        transactions = self.get_data(f"{self.expenses_sheet_name}")
+        transactions = self.get_data(f"{self.expenses_sheet_name}", columns_indexes=list(range(0,8)))
         # remove header
         transactions.pop(0)
+        transactions = [self._parse_pulled_transaction(trx) for trx in transactions]
         return transactions
+
+
+    def _parse_pulled_transaction(self, transaction) -> List:
+        if "," in transaction[-1]:
+                transaction[-1] = transaction[-1].replace(",","")
+
+        if "," in transaction[-2]:
+                transaction[-2] = transaction[-2].replace(",","")
+        try:
+            transaction[-1] = int(float(transaction[-1]))
+        except ValueError:
+            transaction[-1] = float(transaction[-1])
+
+        try:
+            transaction[-2] = int(float(transaction[-2]))
+        except ValueError:
+            transaction[-2] = float(transaction[-2])
+            
+        return transaction
+
 
     def get_data(self, data_range, columns_indexes: List[int] = None):
         result = (
@@ -98,9 +119,30 @@ class GoogleSheetRepository(IRepository):
             # data = [map(lambda description_tuple, category_tuple: (description_tuple[1], category_tuple[1]), filter(lambda x: x[0] in columns_indexes, enumerate(row))) for row in values]
         return data
 
-    def batch_insert(self, data: List[List[str]]) -> None:
+
+    def remove_duplicates(self, data: List[List[str]]) -> List[List[str]]:
+        stored_data = {str(el) for el in self.get_transactions()}
+        data_normalized = [self._parse_pulled_transaction(trx) for trx in data]
+
+        new_transactions = []
+
+        if stored_data is not None and len(stored_data) > 0:
+            for trx in data_normalized:
+                if str(trx) not in stored_data:
+                    new_transactions.append(trx)
+        
+            return new_transactions
+        return data_normalized
+
+
+    def batch_insert(self, data: List[List[str]], check_duplicates=True) -> None:
+        if check_duplicates:
+            data_to_insert = self.remove_duplicates(data)
+        else:
+            data_to_insert = data               
+
         self.__append_in_range(
-            data, f"{self.expenses_sheet_name}!{self.expenses_start_cell}"
+            data_to_insert, f"{self.expenses_sheet_name}!{self.expenses_start_cell}"
         )
 
     def sort_transactions(self, column_index_order_by: int):
@@ -112,6 +154,7 @@ class GoogleSheetRepository(IRepository):
             f"{self.expenses_sheet_name}!"
             f"{self.expenses_start_cell[0]}{int(self.expenses_start_cell[1:]) + 1}",
         )
+    
 
     def get_last_transaction_date_for_account(self, account_name: str) -> datetime:
         result = (
@@ -126,6 +169,7 @@ class GoogleSheetRepository(IRepository):
         last_date = self.last_transaction_date_by_account.get(account_name, None)
         if last_date is not None:
             last_date = datetime.strptime(last_date, "%Y-%m-%d")
+        
         return last_date
 
     def push_categories(self, categories: List[str]) -> None:
