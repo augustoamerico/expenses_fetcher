@@ -75,15 +75,19 @@ class GoogleSheetRepository(IRepository):
 
         if "," in transaction[-2]:
                 transaction[-2] = transaction[-2].replace(",","")
-        try:
-            transaction[-1] = int(float(transaction[-1]))
-        except ValueError:
-            transaction[-1] = float(transaction[-1])
+        float_parse = float(transaction[-1])
+        int_parse = int(float(transaction[-1]))
+        if int_parse == float_parse:
+            transaction[-1] = int_parse
+        else:
+            transaction[-1] = float_parse
 
-        try:
-            transaction[-2] = int(float(transaction[-2]))
-        except ValueError:
-            transaction[-2] = float(transaction[-2])
+        float_parse = float(transaction[-2])
+        int_parse = int(float(transaction[-2]))
+        if int_parse == float_parse:
+            transaction[-2] = int_parse
+        else:
+            transaction[-2] = float_parse
             
         return transaction
 
