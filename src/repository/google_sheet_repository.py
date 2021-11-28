@@ -10,17 +10,13 @@ from googleapiclient.discovery import build
 from src.repository.i_repository import IRepository
 
 
-# SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-# SAMPLE_SPREADSHEET_ID = '1GkSqLQHR8m88ZktbhJisN2fKg1nqxtt_pcoywnBu2Ow'
-SAMPLE_RANGE_NAME = 'Expenses!C2:F'
-
-
 class GoogleSheetRepository(IRepository):
     def __init__(
         self,
         scopes,
         spreadsheet_id,
         expenses_sheet_name,
+        expenses_staging_name,
         expenses_start_cell,
         metadata_sheet_name,
         token_path,
@@ -30,6 +26,7 @@ class GoogleSheetRepository(IRepository):
         # credentials_path = 'account_transactions_massager/taggers/credentials.json'
         self.spreadsheet_id = spreadsheet_id
         self.expenses_sheet_name = expenses_sheet_name
+        self.expenses_staging_name = expenses_staging_name
         self.expenses_start_cell = expenses_start_cell
         self.__start_of_sheet = f"{expenses_sheet_name}!{expenses_start_cell}"
         self.metadata_sheet_name = metadata_sheet_name
@@ -63,8 +60,12 @@ class GoogleSheetRepository(IRepository):
 
     def get_transactions(self):
         transactions = self.get_data(f"{self.expenses_sheet_name}", columns_indexes=list(range(0,8)))
+        transactions_staging = self.get_data(f"{self.expenses_staging_name}", columns_indexes=list(range(0,8)))
         # remove header
         transactions.pop(0)
+        transactions_staging.pop(0)
+        transactions.extend(transactions_staging)
+        transactions = filter(lambda x: x[0] != '' and x[1] != '' and x[2] != '' , transactions)
         transactions = [self._parse_pulled_transaction(trx) for trx in transactions]
         return transactions
 
@@ -75,7 +76,11 @@ class GoogleSheetRepository(IRepository):
 
         if "," in transaction[-2]:
                 transaction[-2] = transaction[-2].replace(",","")
-        float_parse = float(transaction[-1])
+        try:
+            float_parse = float(transaction[-1])
+        except Exception as e:
+            print(transaction)
+            raise e
         int_parse = int(float(transaction[-1]))
         if int_parse == float_parse:
             transaction[-1] = int_parse
@@ -146,7 +151,7 @@ class GoogleSheetRepository(IRepository):
             data_to_insert = data               
 
         self.__append_in_range(
-            data_to_insert, f"{self.expenses_sheet_name}!{self.expenses_start_cell}"
+            data_to_insert, f"{self.expenses_staging_name}!{self.expenses_start_cell}"
         )
 
     def sort_transactions(self, column_index_order_by: int):

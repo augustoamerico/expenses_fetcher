@@ -25,6 +25,20 @@ accounts:
             regex:
                 Withdraw:
                     - "LEV\\s*ATM\\s*\\d{4}(\\s|\\d|\\w|\\W)*"
+    MyEdenred:
+        type: myedenred
+        username: my@email.com
+        card_number: XXXXXX
+        category_taggers:
+            historic_from:
+                - "MealAllowance"
+    Checking:
+        type: nordigen-account
+        token: XXXXXXXXXXXXXXXXXXXXX
+        account: XXXXXXXXXXXXXXXXXXXXXXXXXXX
+        category_taggers:
+            historic_from:
+                    - "Main"
 transactions:
   debt: "Debt"
   income: "Income"
