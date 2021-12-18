@@ -10,6 +10,10 @@ from src.application.expenses_fetcher.expenses_fetcher import ExpensesFetcher
 from src.service.configuration import configuration_parser as cfg_parser
 from src.service.password_getter_tty import TTYPasswordGetter
 
+import logging
+
+log = logging.getLogger(__class__)
+
 parser = argparse.ArgumentParser(description="ExpenseFetcher")
 parser.add_argument(
     "--config-file", dest="config_file", help="expense fetcher config file path"
@@ -17,7 +21,7 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-print(args.config_file)
+log.debug(args.config_file)
 
 password_getter = TTYPasswordGetter("Password for account {} :")
 password_getter_repo = TTYPasswordGetter("Password for repository {} :")
@@ -87,6 +91,11 @@ def build_expense_fetcher(config):
             None
             if "income" not in config["transactions"]
             else config["transactions"]["income"]
+        )
+        transactions_cfg["transfer_description"] = (
+            None
+            if "transfer" not in config["transactions"]
+            else config["transactions"]["transfer"]
         )
         transactions_cfg["date_format"] = (
             None

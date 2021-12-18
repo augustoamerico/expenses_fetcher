@@ -16,14 +16,17 @@ from src.infrastructure.bank_account_transactions_fetchers.nordigen_fetcher impo
 class NordigenAccountManager(IAccountManager):
     def __init__(
         self,
-        token: str,
+        secret_id: str,
+        secret_key: str,
         account_id: str,
         remove_transaction_description_prefix: bool,
-        taggers: List[ITagger]
+        taggers: List[ITagger],
+        account_names: List[
+            str
+        ] = None,  # this is needed to compare categories agains account names, to identify transfers
     ):
         self.transactions_fetcher: ITransactionsFetcher = NordigenFetcher(
-            token,
-            account_id
+            secret_id, secret_key, account_id
         )
         if self.transactions_fetcher is None:
             raise AccountNotFoundException(
@@ -34,6 +37,10 @@ class NordigenAccountManager(IAccountManager):
         self.remove_transactions_description_prefix = (
             remove_transaction_description_prefix
         )
+        self.account_names = account_names
+
+    def set_accounts(self, account_names: List[str]) -> None:
+        self.account_names = account_names
 
     def _get_transactions(
         self, date_start: datetime, date_end: datetime
@@ -46,7 +53,9 @@ class NordigenAccountManager(IAccountManager):
                 NordigenTransaction(
                     booked_date=raw_transaction["bookingDate"],
                     value_date=raw_transaction["valueDate"],
-                    transaction_name=raw_transaction["remittanceInformationUnstructured"],
+                    transaction_name=raw_transaction[
+                        "remittanceInformationUnstructured"
+                    ],
                     amount=raw_transaction["transactionAmount"],
                 )
             )

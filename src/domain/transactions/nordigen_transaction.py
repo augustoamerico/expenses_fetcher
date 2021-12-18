@@ -6,7 +6,11 @@ from src.domain.transactions import ITransaction
 
 class NordigenTransaction(ITransaction):
     def __init__(
-        self, booked_date: datetime, value_date: datetime, transaction_name: str, amount: float
+        self,
+        booked_date: datetime,
+        value_date: datetime,
+        transaction_name: str,
+        amount: float,
     ):
         if not isinstance(amount, numbers.Number):
             raise Exception("Value is not a numeric variable")
@@ -16,6 +20,7 @@ class NordigenTransaction(ITransaction):
             value=amount,
             description=transaction_name,
             is_income=amount >= 0,
+            is_transfer=False,
         )
 
     def get_description(self, remove_prefix: bool = False):

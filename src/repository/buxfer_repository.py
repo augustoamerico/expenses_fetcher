@@ -131,7 +131,7 @@ class BuxferRepository(IRepository):
                 GET_TRANSACTIONS, params={"token": self.token, "page": page}
             )
             if response.status_code != 200:
-                print(response.text)
+                log.debug(response.text)
                 raise Exception("Something happened")
             response_obj = json.loads(response.text)
             total_trx = int(response_obj["response"]["numTransactions"])
@@ -267,11 +267,11 @@ class BuxferRepository(IRepository):
             url=ADD_TRANSACTION, json=payload, params={"token": self.token}
         )
         if response.status_code != 200:
-            print(payload)
-            print(response.text)
+            log.debug(payload)
+            log.debug(response.text)
             raise Exception("Failed to add transaction")
         if debug:
-            print(f"trx {payload} added")
+            log.debug(f"trx {payload} added")
 
     def sort_transactions(self, column_index_order_by: int):
         """

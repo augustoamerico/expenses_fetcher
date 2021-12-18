@@ -26,13 +26,17 @@ class IAccountManager(ABC):
                 try:
                     while transaction.get_category() == "":
                         tagger = next(tagger_iterable)
-                        transaction.set_category(
-                            tagger.get_category(
-                                transaction.get_description(
-                                    self.remove_transactions_description_prefix
-                                )
+                        current_category = tagger.get_category(
+                            transaction.get_description(
+                                self.remove_transactions_description_prefix
                             )
                         )
+                        transaction.set_category(current_category)
+                        if self.account_names:
+                            log.debug("Account manager is receiving account names:")
+                            log.debug(self.account_names)
+                            if current_category in self.account_names:
+                                transaction.set_transfer()
                 except StopIteration:
                     continue
         return transactions

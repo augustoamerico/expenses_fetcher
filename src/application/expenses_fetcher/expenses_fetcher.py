@@ -23,6 +23,7 @@ class ExpensesFetcher:
         accounts: Dict[str, IAccountManager],
         debt_description: str = "Debt",
         income_description: str = "Income",
+        transfer_description: str = "Transfer",
         date_format: str = "%Y/%M/%D",
     ):
         self.repositories = repositories
@@ -30,7 +31,11 @@ class ExpensesFetcher:
         self.staged_transactions: List[List[str]] = list()
         self.debt_description = debt_description
         self.income_description = income_description
+        self.transfer_description = transfer_description
         self.date_format = date_format
+        account_names = list(accounts.keys())
+        for account_name in account_names:
+            self.accounts[account_name].set_accounts(account_names)
 
     def pull_transactions(
         self,
@@ -59,7 +64,7 @@ class ExpensesFetcher:
                     else:
                         date_start_fetched = date_get_from_repo
                     # date_start_fetched = date_start_fetched + timedelta(days=1)
-                    print(
+                    log.debug(
                         f"Reference data for account {account_name} is {date_start_fetched}"
                     )
                 else:
@@ -76,6 +81,7 @@ class ExpensesFetcher:
                                 account_name,
                                 self.debt_description,
                                 self.income_description,
+                                self.transfer_description,
                                 self.date_format,
                             ).to_list(),
                             account_manager.get_transactions(

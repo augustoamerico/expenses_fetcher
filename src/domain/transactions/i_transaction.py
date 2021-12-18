@@ -10,12 +10,14 @@ class ITransaction(ABC):
         value: float,
         description: str,
         is_income: bool,
+        is_transfer: bool,
     ):
         self.auth_date = auth_date
         self.capture_date = capture_date
         self.value = value
         self.description = description
-        self.is_income = is_income
+        self.is_income_value = is_income
+        self.is_transfer_value = is_transfer
         self.category = ""
 
     def get_auth_date_str(self, date_format: str = "%Y/%m/%d") -> str:
@@ -30,6 +32,9 @@ class ITransaction(ABC):
     def set_category(self, category: str) -> None:
         self.category = category
 
+    def set_transfer(self, is_transfer: bool = True) -> None:
+        self.is_transfer_value = is_transfer
+
     def get_category(self) -> str:
         return self.category
 
@@ -38,10 +43,13 @@ class ITransaction(ABC):
         return self.description
 
     def is_income(self) -> bool:
-        return self.is_income
+        return self.is_income_value
 
     def is_debt(self) -> bool:
-        return not self.is_income
+        return not self.is_income_value
+
+    def is_transfer(self) -> bool:
+        return self.is_transfer_value
 
     def __str__(self):
         # this is here for debugging purposes only

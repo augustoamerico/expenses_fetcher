@@ -10,12 +10,17 @@ class ExpenseFetcherTransaction:
         account_name: str,
         debt_description: str,
         income_description: str,
+        transfer_description: str,
         date_format: str,
     ):
         self.transaction = transaction
         self.account_name = account_name
         self.transaction_type = (
-            debt_description if transaction.is_debt() else income_description
+            debt_description
+            if transaction.is_debt()
+            else transfer_description
+            if transaction.is_transfer()
+            else income_description
         )
         self.absolute_value = abs(transaction.get_value())
         self.date_format = date_format

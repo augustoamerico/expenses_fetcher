@@ -3,7 +3,7 @@ import os
 
 from src.application.account_manager import ActiveBankAccountManager, IAccountManager
 from src.application.account_manager.myedenred_account_manager import (
-    MyEdenredAccountManager
+    MyEdenredAccountManager,
 )
 from src.application.account_manager.nordigen_account_manager import (
     NordigenAccountManager,
@@ -58,21 +58,21 @@ def parse_repository(repository, repository_type, password_getter):
     if repository_type == "googlesheet":
         return GoogleSheetRepository(
             # scopes,
-            scopes = repository["scopes"],
+            scopes=repository["scopes"],
             # spreadsheet_id
-            spreadsheet_id = repository["spreadsheet_id"],
+            spreadsheet_id=repository["spreadsheet_id"],
             # expenses_sheet_name
-            expenses_sheet_name = repository["expenses_sheet_name"],
+            expenses_sheet_name=repository["expenses_sheet_name"],
             # expenses_staging_name
-            expenses_staging_name = repository["expenses_staging_name"],
+            expenses_staging_name=repository["expenses_staging_name"],
             # expenses_start_cell
-            expenses_start_cell = repository["expenses_start_cell"],
+            expenses_start_cell=repository["expenses_start_cell"],
             # metadata_sheet_name
-            metadata_sheet_name = repository["metadata_sheet_name"],
+            metadata_sheet_name=repository["metadata_sheet_name"],
             # token_path
-            token_path = repository["token_cache_path"],
+            token_path=repository["token_cache_path"],
             # credentials_path
-            credentials_path = repository["credentials_path"],
+            credentials_path=repository["credentials_path"],
         )
     elif repository_type == "buxfer":
         if "password_env" in repository:
@@ -110,6 +110,7 @@ def parse_remove_transaction_description_prefix(account):
             )
     return remove_transaction_description_prefix
 
+
 def get_general_account_info(account, account_name, repositories) -> GeneralAccountInfo:
     if "username_env" in account:
         username = os.environ[account["username_env"]]
@@ -125,7 +126,9 @@ def get_general_account_info(account, account_name, repositories) -> GeneralAcco
     else:
         password = None
 
-    remove_transaction_description_prefix = parse_remove_transaction_description_prefix(account)
+    remove_transaction_description_prefix = parse_remove_transaction_description_prefix(
+        account
+    )
 
     taggers = parse_taggers(account["category_taggers"], next(iter(repositories)))
 
@@ -171,7 +174,8 @@ def parse_account(
     elif account_type == "nordigen-account":
 
         return NordigenAccountManager(
-            account["token"],
+            account["secret_id"],
+            account["secret_key"],
             account["account"],
             parse_remove_transaction_description_prefix(account),
             parse_taggers(account["category_taggers"], next(iter(repositories))),
