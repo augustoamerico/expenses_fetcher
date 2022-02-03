@@ -1,7 +1,8 @@
 import datetime
 from typing import List
 
-from src.application.account_manager import IAccountManager, AccountNotFoundException
+from src.application.account_manager.i_account_manager import IAccountManager
+from src.application.account_manager.exceptions import AccountNotFoundException
 from src.application.password_getter.password_getter import IPasswordGetter
 from src.domain.category_taggers.i_tagger import ITagger
 from src.domain.transactions import ITransaction, MyEdenredTransaction

@@ -12,7 +12,7 @@ from src.service.password_getter_tty import TTYPasswordGetter
 
 import logging
 
-log = logging.getLogger(__class__)
+log = logging.getLogger(__file__)
 
 parser = argparse.ArgumentParser(description="ExpenseFetcher")
 parser.add_argument(
@@ -33,12 +33,14 @@ def build_expense_fetcher(config):
     if "expense_fetcher_options" in config:
         if "tmp_dir_path" in config["expense_fetcher_options"]:
             tmp_dir = config["expense_fetcher_options"]["tmp_dir_path"]
+            try:
+                os.mkdir(tmp_dir)
+            except FileExistsError:
+                pass
         else:
-            tmp_dir = os.path.join(os.environ.get("HOME"), ".expense_fetcher_tmp")
-        try:
-            os.mkdir(tmp_dir)
-        except FileExistsError:
-            pass
+            tmp_dir = None
+    else:
+        tmp_dir = None
 
     repositories = dict()
     if "repositories" in config:

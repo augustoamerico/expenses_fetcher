@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from src.application.account_manager import IAccountManager
+from src.application.account_manager.i_account_manager import IAccountManager
 from typing import Iterable, Dict
 from enum import Enum
 
@@ -9,6 +9,9 @@ from src.application.transactions.expense_fetcher_transaction import (
 from src.repository.i_repository import IRepository
 
 from typing import List
+import logging
+
+log = logging.getLogger(__file__)
 
 
 class OrderBy(Enum):
@@ -33,6 +36,7 @@ class ExpensesFetcher:
         self.income_description = income_description
         self.transfer_description = transfer_description
         self.date_format = date_format
+        self.staged_balances: List[List[str]] = list()
         account_names = list(accounts.keys())
         for account_name in account_names:
             self.accounts[account_name].set_accounts(account_names)
@@ -53,6 +57,13 @@ class ExpensesFetcher:
 
         try:
             for account_name, account_manager in accounts_iterator:
+
+                current_balance = account_manager.get_balance()
+                if current_balance is not None:
+                    self.staged_balances.append(
+                        current_balance.to_list(self.date_format, account_name)
+                    )
+
                 if date_start is None:
                     _, pivot_repository = next(iter(self.repositories.items()))
                     date_get_from_repo = pivot_repository.get_last_transaction_date_for_account(
@@ -122,6 +133,7 @@ class ExpensesFetcher:
         try:
             for _, repository in repository_iterator:
                 repository.batch_insert(self.staged_transactions)
+                repository.append_balances(self.staged_balances)
         except StopIteration:
             pass
 

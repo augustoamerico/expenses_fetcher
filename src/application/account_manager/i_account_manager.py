@@ -2,7 +2,11 @@ from abc import ABC, abstractmethod
 import datetime
 from typing import List
 from src.domain.transactions import ITransaction
+from src.domain.balance import Balance
 from src.domain.category_taggers.i_tagger import ITagger
+import logging
+
+log = logging.getLogger(__file__)
 
 
 class IAccountManager(ABC):
@@ -40,6 +44,10 @@ class IAccountManager(ABC):
                 except StopIteration:
                     continue
         return transactions
+
+    @abstractmethod
+    def get_balance() -> Balance:
+        pass
 
     @abstractmethod
     def close(self):

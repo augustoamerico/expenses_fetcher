@@ -1,7 +1,8 @@
 from typing import List, Dict
 import os
+import importlib
 
-from src.application.account_manager import ActiveBankAccountManager, IAccountManager
+from src.application.account_manager.i_account_manager import IAccountManager
 from src.application.account_manager.myedenred_account_manager import (
     MyEdenredAccountManager,
 )
@@ -56,24 +57,7 @@ def parse_taggers(
 
 def parse_repository(repository, repository_type, password_getter):
     if repository_type == "googlesheet":
-        return GoogleSheetRepository(
-            # scopes,
-            scopes=repository["scopes"],
-            # spreadsheet_id
-            spreadsheet_id=repository["spreadsheet_id"],
-            # expenses_sheet_name
-            expenses_sheet_name=repository["expenses_sheet_name"],
-            # expenses_staging_name
-            expenses_staging_name=repository["expenses_staging_name"],
-            # expenses_start_cell
-            expenses_start_cell=repository["expenses_start_cell"],
-            # metadata_sheet_name
-            metadata_sheet_name=repository["metadata_sheet_name"],
-            # token_path
-            token_path=repository["token_cache_path"],
-            # credentials_path
-            credentials_path=repository["credentials_path"],
-        )
+        return GoogleSheetRepository(**repository)
     elif repository_type == "buxfer":
         if "password_env" in repository:
             password = os.environ[repository["password_env"]]
@@ -145,6 +129,11 @@ def parse_account(
 ) -> IAccountManager:
     account_type = account["type"].lower().strip()
     if account_type == "activebank-debit" or account_type == "activebank-precard":
+
+        ActiveBankAccountManager = importlib.import_module(
+            "src.application.account_manager.active_bank_account_manager",
+            package=__package__,
+        ).ActiveBankAccountManager
         general_account_info = get_general_account_info(
             account, account_name, repositories
         )
@@ -159,6 +148,12 @@ def parse_account(
             password_getter,
         )
     elif account_type == "myedenred":
+
+        MyEdenredAccountManager = importlib.import_module(
+            "src.application.account_manager.myedenred_account_manager",
+            package=__package__,
+        ).MyEdenredAccountManager
+
         general_account_info = get_general_account_info(
             account, account_name, repositories
         )
@@ -172,6 +167,11 @@ def parse_account(
             password_getter,
         )
     elif account_type == "nordigen-account":
+
+        NordigenAccountManager = importlib.import_module(
+            "src.application.account_manager.nordigen_account_manager",
+            package=__package__,
+        ).NordigenAccountManager
 
         return NordigenAccountManager(
             account["secret_id"],

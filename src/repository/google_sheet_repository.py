@@ -19,30 +19,34 @@ class GoogleSheetRepository(IRepository):
         expenses_staging_name,
         expenses_start_cell,
         metadata_sheet_name,
-        token_path,
+        accounts_balance_sheet_name,
+        accounts_balance_start_cell,
+        token_cache_path,
         credentials_path,
     ):
-        # token_path = 'token.pickle'
-        # credentials_path = 'account_transactions_massager/taggers/credentials.json'
         self.spreadsheet_id = spreadsheet_id
+        self.accounts_balance_sheet_name = accounts_balance_sheet_name
+        self.accounts_balance_start_cell = accounts_balance_start_cell
         self.expenses_sheet_name = expenses_sheet_name
         self.expenses_staging_name = expenses_staging_name
         self.expenses_start_cell = expenses_start_cell
         self.__start_of_sheet = f"{expenses_sheet_name}!{expenses_start_cell}"
         self.metadata_sheet_name = metadata_sheet_name
         self.scopes = scopes
-        self.credentials = self._getOrRefreshCredentials(token_path, credentials_path)
+        self.credentials = self._getOrRefreshCredentials(
+            token_cache_path, credentials_path
+        )
         self.sheet = build("sheets", "v4", credentials=self.credentials).spreadsheets()
         self.last_transaction_date_by_account = None
         self.categories = None
 
-    def _getOrRefreshCredentials(self, token_path, credentials_path) -> Dict:
+    def _getOrRefreshCredentials(self, token_cache_path, credentials_path) -> Dict:
         creds = None
         # The file token.pickle stores the user's access and refresh tokens, and is
         # created automatically when the authorization flow completes for the first
         # time.
-        if os.path.exists(token_path):
-            with open(token_path, "rb") as token:
+        if os.path.exists(token_cache_path):
+            with open(token_cache_path, "rb") as token:
                 creds = pickle.load(token)
         # If there are no (valid) credentials available, let the user log in.
         if not creds or not creds.valid:
@@ -54,7 +58,7 @@ class GoogleSheetRepository(IRepository):
                 )
                 creds = flow.run_local_server(port=0)
             # Save the credentials for the next run
-            with open(token_path, "wb") as token:
+            with open(token_cache_path, "wb") as token:
                 pickle.dump(creds, token)
         return creds
 
@@ -242,3 +246,13 @@ class GoogleSheetRepository(IRepository):
             includeValuesInResponse=True,
             body={"range": update_range, "majorDimension": axis, "values": values},
         ).execute()
+
+    def append_balances(self, data_to_insert: List[List[str]]) -> None:
+        """
+            balances schema:
+                date_balance, date_last_update, account, balance
+        """
+        self.__append_in_range(
+            data_to_insert,
+            f"{self.accounts_balance_sheet_name}!{self.accounts_balance_start_cell}",
+        )

@@ -23,5 +23,4 @@ uritemplate==3.0.1
 urllib3==1.25.8
 selenium==3.141.0
 openpyxl==3.0.5
-
 tabulate==0.8.7

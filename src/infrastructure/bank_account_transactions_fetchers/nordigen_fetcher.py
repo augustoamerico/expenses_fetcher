@@ -14,6 +14,7 @@ from src.infrastructure.bank_account_transactions_fetchers.i_transactions_fetche
 
 DOWNLOAD_DATA_TEMPLATE = "https://ob.nordigen.com/api/v2/accounts/{}/transactions/"
 GET_TOKEN_URL = "https://ob.nordigen.com/api/v2/token/new/"
+BALANCE_DATA_TEMPLATE = "https://ob.nordigen.com/api/v2/accounts/{}/balances/"
 
 
 requests_cache.install_cache("discogs_cache", backend="sqlite", expire_after=180)
@@ -24,6 +25,7 @@ class NordigenFetcher(ITransactionsFetcher):
         self.token = self._generate_token(secret_id, secret_key)
         self.account = account
         self.download_data_url = DOWNLOAD_DATA_TEMPLATE.format(account)
+        self.balance_data_url = BALANCE_DATA_TEMPLATE.format(account)
 
     def _generate_token(self, secret_id: str, secret_key: str):
         headers = {"accept": "application/json", "Content-Type": "application/json"}
@@ -63,3 +65,12 @@ class NordigenFetcher(ITransactionsFetcher):
                 trxs_parsed,
             )
         )
+
+    def get_balance(self) -> Dict[str, object]:
+        headers = {
+            "accept": "application/json",
+            "Authorization": f"Bearer {self.token}",
+        }
+        r = requests.get(self.balance_data_url, headers=headers)
+        balances_txt = json.loads(r.text)
+        return balances_txt

@@ -10,10 +10,7 @@ from src.infrastructure.bank_account_transactions_fetchers.active_bank_fetcher_c
     ITransactionsFetcher,
 )
 from src.repository.google_sheet_repository import GoogleSheetRepository
-
-
-class AccountNotFoundException(Exception):
-    pass
+from src.application.account_manager.exceptions import AccountNotFoundException
 
 
 class ActiveBankAccountManager(IAccountManager):
