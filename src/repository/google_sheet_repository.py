@@ -72,7 +72,7 @@ class GoogleSheetRepository(IRepository):
         # remove header
         transactions.pop(0)
         transactions_staging.pop(0)
-        transactions.extend(transactions_staging)
+        transactions.extend([el for el in transactions_staging if len(el) > 0])
         transactions = filter(
             lambda x: x[0] != "" and x[1] != "" and x[2] != "", transactions
         )
@@ -179,6 +179,8 @@ class GoogleSheetRepository(IRepository):
             )
             .execute()
         )
+        print(account_name)
+        print(result)
         self.last_transaction_date_by_account = dict(result.get("values", []))
         last_date = self.last_transaction_date_by_account.get(account_name, None)
         if last_date is not None:
