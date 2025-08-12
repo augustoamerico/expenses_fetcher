@@ -1,4 +1,12 @@
 __pycache__
 .idea/
 .vscode/
+.env
 venv/
+config/
+lib/
+bin/
+include/
+credentials.json
+*.sqlite
+token.pickle
