@@ -13,7 +13,7 @@ from src.domain.category_taggers.historic_tagger import HistoricTagger
 from src.domain.category_taggers.i_tagger import ITagger
 from src.domain.category_taggers.regex_tagger import RegexTaggerBuilder
 from src.repository.google_sheet_repository import GoogleSheetRepository
-from src.repository.buxfer_repository import BuxferRepository
+# BuxferRepository imported lazily under feature flag
 from src.repository.i_repository import IRepository
 
 
@@ -33,6 +33,16 @@ class GeneralAccountInfo:
         self.taggers = taggers
 
 
+def _is_buxfer_enabled() -> bool:
+    # Feature flag: enable via env var FEATURES_ENABLE_BUXFER=true
+    return os.environ.get("FEATURES_ENABLE_BUXFER", "false").lower() in (
+        "1",
+        "true",
+        "yes",
+        "y",
+    )
+
+
 def parse_taggers(
     category_taggers, base_repository: IRepository = None
 ) -> List[ITagger]:
@@ -49,7 +59,6 @@ def parse_taggers(
 
             taggers.append(regex_tagger_builder.build())
         elif tagger_type == "historic_from":
-            # To be implemented - accept a list of Account Ids to be selective from where to get historic
             taggers.append(HistoricTagger(base_repository))
 
     return taggers
@@ -59,6 +68,13 @@ def parse_repository(repository, repository_type, password_getter):
     if repository_type == "googlesheet":
         return GoogleSheetRepository(**repository)
     elif repository_type == "buxfer":
+        if not _is_buxfer_enabled():
+            raise Exception(
+                "The 'buxfer' repository is deprecated and disabled by default. To enable temporarily, set FEATURES_ENABLE_BUXFER=true in environment variables, or remove it from your configuration."
+            )
+        # Lazy import to avoid import-time errors when disabled
+        from src.repository.buxfer_repository import BuxferRepository
+
         if "password_env" in repository:
             password = os.environ[repository["password_env"]]
         elif "password" in repository:
@@ -68,9 +84,8 @@ def parse_repository(repository, repository_type, password_getter):
 
         transfers_definitions = []
 
-        if "define_type" in repository:
-            if "transfer" in repository["define_type"]:
-                transfers_definitions = repository["define_type"]["transfer"]
+        if "define_type" in repository and "transfer" in repository["define_type"]:
+            transfers_definitions = repository["define_type"]["transfer"]
 
         return BuxferRepository(
             username=repository["username"],
