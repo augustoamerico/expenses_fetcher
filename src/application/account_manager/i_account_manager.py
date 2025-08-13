@@ -35,11 +35,17 @@ class IAccountManager(ABC):
                                 self.remove_transactions_description_prefix
                             )
                         )
+                        current_type = tagger.get_type(
+                            transaction.get_description(
+                                self.remove_transactions_description_prefix
+                            )
+                        )
                         transaction.set_category(current_category)
+                        transaction.set_type(current_type)
                         if self.account_names:
                             log.debug("Account manager is receiving account names:")
                             log.debug(self.account_names)
-                            if current_category in self.account_names:
+                            if current_category in self.account_names and transaction.get_type() == "":
                                 transaction.set_transfer()
                 except StopIteration:
                     continue

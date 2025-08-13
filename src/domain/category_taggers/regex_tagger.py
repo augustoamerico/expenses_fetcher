@@ -1,5 +1,4 @@
 import re
-
 from typing import List, Tuple
 from src.domain.category_taggers.i_tagger import ITagger
 
@@ -18,6 +17,8 @@ class RegexTagger(ITagger):
 
         return res
 
+    def get_type(self, expense_description: str) -> str:
+        return ""
 
 class RegexTaggerBuilder:
     def __init__(self):

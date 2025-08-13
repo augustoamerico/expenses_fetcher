@@ -105,7 +105,7 @@ class GoogleSheetRepository(IRepository):
 
         return transaction
 
-    def get_data(self, data_range, columns_indexes: List[int] = None):
+    def get_data(self, data_range, columns_indexes: List[int] = None) -> List[List[object]]:
         result = (
             self.sheet.values()
             .get(spreadsheetId=self.spreadsheet_id, range=data_range)

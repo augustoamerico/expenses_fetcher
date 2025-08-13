@@ -5,6 +5,7 @@ from datetime import datetime
 from random import randint
 from time import sleep
 from typing import List, Dict
+import pickle
 
 from src.application.password_getter.password_getter import IPasswordGetter
 
@@ -52,35 +53,42 @@ class NordigenFetcher(ITransactionsFetcher):
         return trx
 
     def getTransactions(
-        self, date_init: datetime = None, date_end: datetime = None
+        self, date_init: datetime = None, date_end: datetime = None, dev=False
     ) -> List[Dict[str, object]]:
-        headers = {
-            "accept": "application/json",
-            "Authorization": f"Bearer {self.token}",
-        }
-        r = requests.get(self.download_data_url, headers=headers)
-        trxs = json.loads(r.text)
+        if dev:
+            print("Reading from cache")
+            with open('buffered_call.pickle', 'rb') as handle:
+                res = pickle.load(handle)
+        else:
+            headers = {
+                "accept": "application/json",
+                "Authorization": f"Bearer {self.token}",
+            }
+            r = requests.get(self.download_data_url, headers=headers)
+            trxs = json.loads(r.text)
 
-        try:
-            trxs_parsed = [
-                self._parse_transaction(trx) for trx in trxs["transactions"]["booked"]
-            ]
-        except KeyError as e:
-            print(f"Error while parsing transactions from account {self.account}")
-            print(trxs)
-            raise e
+            try:
+                trxs_parsed = [
+                    self._parse_transaction(trx) for trx in trxs["transactions"]["booked"]
+                ]
+            except KeyError as e:
+                print(f"Error while parsing transactions from account {self.account}")
+                print(trxs)
+                raise e
 
-        date_init_query = datetime_date.min if date_init is None else date_init.date()
-        date_end_query = datetime_date.max if date_end is None else date_end.date()
-
-        return list(
-            filter(
-                lambda trx: date_init_query
-                <= trx["bookingDate"].date()
-                <= date_end_query,
-                trxs_parsed,
+            date_init_query = datetime_date.min if date_init is None else date_init.date()
+            date_end_query = datetime_date.max if date_end is None else date_end.date()
+            res = list(
+                filter(
+                    lambda trx: date_init_query
+                    <= trx["bookingDate"].date()
+                    <= date_end_query,
+                    trxs_parsed,
+                )
             )
-        )
+            with open('buffered_call.pickle', 'wb') as handle:
+                pickle.dump(res, handle, protocol=pickle.HIGHEST_PROTOCOL)
+        return res
 
     def get_balance(self) -> Dict[str, object]:
         headers = {

@@ -27,6 +27,7 @@ class ExpensesFetcher:
         debt_description: str = "Debt",
         income_description: str = "Income",
         transfer_description: str = "Transfer",
+        investment_description: str = "Investment",
         date_format: str = "%Y/%M/%D",
     ):
         self.repositories = repositories
@@ -35,6 +36,7 @@ class ExpensesFetcher:
         self.debt_description = debt_description
         self.income_description = income_description
         self.transfer_description = transfer_description
+        self.investment_description = investment_description
         self.date_format = date_format
         self.staged_balances: List[List[str]] = list()
         account_names = list(accounts.keys())
@@ -93,6 +95,7 @@ class ExpensesFetcher:
                                 self.debt_description,
                                 self.income_description,
                                 self.transfer_description,
+                                self.investment_description,
                                 self.date_format,
                             ).to_list(),
                             account_manager.get_transactions(

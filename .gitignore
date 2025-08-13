@@ -4,9 +4,11 @@ __pycache__
 .env
 venv/
 config/
+!config/accounts_cfg_example.yaml
 lib/
 bin/
 include/
 credentials.json
 *.sqlite
 token.pickle
+example_csv_raw/

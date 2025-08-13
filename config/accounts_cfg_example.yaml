@@ -42,6 +42,8 @@ accounts:
 transactions:
   debt: "Debt"
   income: "Income"
+  transfer: "Transfer"
+  investment: "Investment"
   date_format: "%Y-%m-%d"
 repositories:
   googlesheet:

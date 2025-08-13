@@ -99,6 +99,11 @@ def build_expense_fetcher(config):
             if "transfer" not in config["transactions"]
             else config["transactions"]["transfer"]
         )
+        transactions_cfg["investment_description"] = (
+            None
+            if "investment" not in config["transactions"]
+            else config["transactions"]["investment"]
+        )
         transactions_cfg["date_format"] = (
             None
             if "date_format" not in config["transactions"]
