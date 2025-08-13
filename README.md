@@ -3,18 +3,30 @@
 A small CLI tool to pull personal finance transactions from multiple sources (banks/APIs), categorize them, and push them into repositories such as Google Sheets or Buxfer. It also tracks account balances and supports basic deduplication.
 
 Highlights
+- Repository-first workflow: keep categorization and dashboards in your repository (Google Sheets today; Excel planned).
 - Pull transactions from:
   - ActivoBank (web automation with Selenium)
   - MyEdenred (official API)
   - Nordigen/GoCardless (open banking API)
 - Categorize using:
   - Regular expressions
-  - Historic matching learned from your repository
+  - Historic matching learned from your repository (for both Category and Type)
+- Type suggestions:
+  - Learns and suggests Type (Debt, Income, Investment, Transfer) from your own history and configured labels
 - Push data to:
   - Google Sheets (with OAuth)
   - Buxfer (with login)
 - Interactive shell to pull, list, sort, and push
 - Balance tracking and appending to repositories
+
+---
+
+Repository-first (Sheets/Excel) philosophy
+- Your repository (Google Sheets now; Excel Online planned) is the first-class UI for review, categorization, and visualization.
+  - Workflow: Expenses Staging → manual validate/split (data validation, dropdowns) → button/script → Expenses.
+  - Dashboards and pivots live in the repository (e.g., Month Report by Category, Year/Category pivots).
+- The Python app is a pipeline that fetches, suggests, stages, and syncs — it does not override your manual edits.
+- The repository abstraction lets you keep the same UX across sinks (Google Sheets today, Excel Online tomorrow) with consistent sheet/table schemas.
 
 ---
 
@@ -90,7 +102,7 @@ repositories:
     expenses_sheet_name: "Expenses"
     expenses_staging_name: "Expenses Staging"
     expenses_start_cell: "A2"
-    metadata_sheet_name: "Metadata"
+    metadata_sheet_name: "Data"  # point this to your metadata sheet (often called "Data")
     accounts_balance_sheet_name: "Accounts Balance"
     accounts_balance_start_cell: "A2"
     token_cache_path: "token.pickle"
@@ -152,12 +164,13 @@ transactions:
   debt: "Debt"
   income: "Income"
   transfer: "Transfer"
+  investment: "Investment"   # optional; used when Type is learned/suggested
   date_format: "%Y-%m-%d"
 ```
 
 Notes:
 - Regex tagger: map category names to a list of regex patterns; only the first item is used internally.
-- historic_from: include the key to enable; it will learn from your repository’s description→category pairs.
+- historic_from: include the key to enable; it will learn from your repository’s history by Description (Category and Type modes).
 - For Buxfer transfers, define “to/from” rules to correctly mark inter-account transfers.
 
 ---
@@ -172,7 +185,9 @@ How it works
   - Repositories are created for each sink:
     - Google Sheets: src/repository/google_sheet_repository.py
     - Buxfer: src/repository/buxfer_repository.py
-  - Taggers (regex, historic) are wired into each account
+  - Taggers are wired into each account:
+    - RegexTagger for rule-based categories
+    - HistoricTagger to suggest both Category and Type from your past "Expenses" history
 
 - The shell (ExpenseFetcherShell) exposes commands to fetch, stage, review, sort, and push transactions
 
@@ -181,6 +196,11 @@ Data model
 - Flattened rows used for repositories: src/application/transactions/expense_fetcher_transaction.py
   - [capture_date, auth_date, description, account_name, type, category, unsigned_value, value]
 - Balance model: src/domain/balance/balance.py
+
+Type resolution
+- If a tagger (e.g., HistoricTagger) suggests a Type, it is used.
+- Otherwise, derive with priority: Transfer > Investment > Debt > Income.
+- Transfer convention: if Category equals any configured account name, mark as Transfer unless a tagger already set Type.
 
 ---
 
@@ -250,11 +270,12 @@ Dates
 
 Google Sheets repository
 
+- First-class UI: This is the primary place where you review, categorize (via dropdowns), optionally split rows, and run a button/script to promote data from "Expenses Staging" to "Expenses". Build your pivots and dashboards here.
 - OAuth: First run will open a local browser window to authorize. A token cache (token_cache_path) is stored for reuse.
-- Expected structure:
+- Expected structure (you can name the sheet tabs as you prefer):
   - expenses_sheet_name + expenses_start_cell (where data goes)
-  - expenses_staging_name (staging sheet)
-  - metadata_sheet_name:
+  - expenses_staging_name (staging sheet for new rows)
+  - metadata_sheet_name (often "Data"):
     - Column A: Account names
     - Column B: Last transaction date per account (YYYY-MM-DD)
     - Column D: Categories list (D2:D)
@@ -272,13 +293,17 @@ Buxfer repository
 
 ---
 
-Categorization
+Future sinks: Excel Online
+- The repository abstraction is designed to support an ExcelRepository that mirrors the Google Sheets experience (staging sheet, final sheet, metadata). This enables the same repository-first workflow for Excel users.
+
+---
+
+Categorization and type learning
 
 - RegexTagger: Match description strings using regex to assign categories
-- HistoricTagger: Learns from repository history (description→category pairs) so recurring merchants inherit categories
-
-Transfers detection:
-- If a tagger returns a category that matches the name of any configured account, the transaction is flagged as a transfer (used by some sinks)
+- HistoricTagger: Learns from your Expenses history (by Description) to suggest both Category and Type
+- Transfer detection:
+  - If Category matches any configured account name, the transaction is marked as Transfer unless a tagger already set a Type
 
 ---
 
