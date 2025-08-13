@@ -13,7 +13,7 @@ from src.domain.category_taggers.historic_tagger import HistoricTagger
 from src.domain.category_taggers.i_tagger import ITagger
 from src.domain.category_taggers.regex_tagger import RegexTaggerBuilder
 from src.repository.google_sheet_repository import GoogleSheetRepository
-from src.repository.buxfer_repository import BuxferRepository
+# Buxfer sink has been removed
 from src.repository.i_repository import IRepository
 
 
@@ -59,26 +59,8 @@ def parse_repository(repository, repository_type, password_getter):
     if repository_type == "googlesheet":
         return GoogleSheetRepository(**repository)
     elif repository_type == "buxfer":
-        if "password_env" in repository:
-            password = os.environ[repository["password_env"]]
-        elif "password" in repository:
-            password = repository["password"]
-        else:
-            password = None
-
-        transfers_definitions = []
-
-        if "define_type" in repository:
-            if "transfer" in repository["define_type"]:
-                transfers_definitions = repository["define_type"]["transfer"]
-
-        return BuxferRepository(
-            username=repository["username"],
-            password=password,
-            get_password=lambda: password_getter.get_password(
-                account_id=repository_type
-            ),
-            transfers=transfers_definitions,
+        raise Exception(
+            "The 'buxfer' repository sink has been removed from the codebase. Please remove it from your configuration."
         )
 
 
