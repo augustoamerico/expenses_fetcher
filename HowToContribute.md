@@ -47,7 +47,7 @@ Repository architecture (overview)
 - src/repository
   - i_repository.py: repository (sink) interface.
   - google_sheet_repository.py: Google Sheets sink; OAuth, read/write ranges; dedupe; last-transaction dates; categories; balances append.
-  - buxfer_repository.py: Buxfer sink; login and session; add transactions; transfer detection via rules; recent-delta dedupe.
+  - buxfer_repository.py: Buxfer sink (deprecated; disabled by default via feature flag). See Feature flags for usage.
 - src/service
   - configuration/configuration_parser.py: parses YAML into repositories, accounts, and taggers; reads env vars; wires password getters; handles tagger configs.
   - password_getter_tty.py: TTY password getter implementation used by main.py.
@@ -80,6 +80,16 @@ Coding standards and conventions
 - Booleans: parse explicitly ("true/false/1/0/yes/no"), avoid bool("False").
 - String comparisons: use == / !=, not `is` / `is not`.
 - Return conventions: when a method means "no suggestion" (e.g., taggers), return empty string "" rather than None.
+
+Feature flags and deprecations
+- Prefer gating deprecated functionality behind environment-based feature flags so behavior is explicit and reversible.
+- Current flags:
+  - FEATURES_ENABLE_BUXFER (default: false)
+    - When false/absent: configurations using repository type "buxfer" fail fast with a clear error.
+    - When true: BuxferRepository is enabled (restored verbatim) and can be used as before.
+- Implementation pattern:
+  - Gate usage in src/service/configuration/configuration_parser.parse_repository()
+  - Lazily import the deprecated module only when the flag is enabled.
 
 Key abstractions to extend (updated)
 - ITransactionsFetcher (src/infrastructure/.../i_transactions_fetcher.py)
@@ -126,6 +136,10 @@ Patterns for common contributions (updated)
 - Add a new sink (repository)
   - Implement IRepository; look at GoogleSheetRepository for range read/write, dedupe, metadata helpers.
   - Keep output row schema and labels consistent with config.
+  - If deprecating a sink, prefer:
+    - Keep code intact (backwards compatibility)
+    - Gate in configuration_parser with a feature flag and fail-fast error when disabled
+    - Document the flag and migration path in README/PR
 - Enhance Google Sheets integration
   - Add helper reads/writes in GoogleSheetRepository for Data sheet ranges (categories, category types, last dates, offsets).
   - Add utilities to precompute helper columns (YearMonth, BudgetJoiner) if desired.
@@ -136,15 +150,7 @@ Backwards compatibility and config
 - New config keys must be optional with safe defaults.
 - Respect labels in config["transactions"]: debt, income, transfer, investment—these should be the strings emitted to sinks.
 - If reading from the Google Sheet Data sheet, make ranges/sheets configurable and fail with clear errors if missing.
-
-Quality checklist (before submitting changes)
-- Does the change preserve the Staging → review → button → Expenses flow?
-- Are new config keys optional and documented in README.md?
-- Are Type/Category outputs aligned with configured labels and/or the Data sheet?
-- Are dates parsed/formatted as "%Y-%m-%d" and booleans parsed robustly?
-- Are string comparisons correct (==/!=)? Any stray prints replaced with logging?
-- Are external calls robust (timeouts/retries) where applicable?
-- Do tests (if added) pass? At minimum, manually validate a simple pull → list → push.
+- If a feature is deprecated, add a feature flag with a clear default (usually disabled), fail fast with a descriptive error, and document how to enable temporarily.
 
 Manual testing (quick guide)
 - Create a virtual env and install requirements.
@@ -155,6 +161,14 @@ Manual testing (quick guide)
   - list to inspect staged rows
   - push repository_name=googlesheet (or your sink)
 - If your change affects taggers, verify Suggested Category/Type appear as expected in Staging (per your Sheet setup).
+- If your change involves a feature flag (e.g., Buxfer):
+  - Default (disabled): ensure the app fails fast with a clear message when config references the disabled feature.
+  - Enabled:
+    - macOS/Linux:
+      FEATURES_ENABLE_BUXFER=true python main.py --config-file path/to/config.yaml
+    - Windows (PowerShell):
+      $env:FEATURES_ENABLE_BUXFER = "true"
+      python main.py --config-file path/to/config.yaml
 
 PR template (for LLMs)
 - Title: Short, descriptive
@@ -164,6 +178,8 @@ PR template (for LLMs)
 - Acceptance criteria: Plain-language checks the user can validate
 - Manual test steps: How to quickly exercise the change
 - Risk/rollback: Any risks and how to back out (e.g., revert one file)
+- Feature flags: Is this gated appropriately? Default safe? Documented in README/PR?
+- Migration note: If a feature is deprecated/disabled by default, include steps for users to enable or remove it from config.
 
 Known rough edges (safe improvements)
 - Default date format should be "%Y-%m-%d" throughout.
@@ -176,6 +192,25 @@ Examples of valuable, low-friction contributions
 - Implement a BancoInvest XLSX importer using openpyxl with configurable column mapping.
 - Add a "PP balances recall" command to compile deposit balances for manual PP updates.
 - Add a stable transaction hash to improve deduplication in repositories.
+
+PRs and branching (conventions and gh)
+- Branching: short-lived branches from master; name by intent (feat/x, fix/x, chore/x, docs/x, refactor/x). One concern per PR.
+- Keep branches current: rebase on master before opening/merging to reduce conflicts. Prefer squash merges.
+- Conventional commits: feat:, fix:, chore:, docs:, refactor:, test:, perf: for clear history.
+- Use GitHub CLI (gh):
+  - Create PR (ready):
+    gh pr create --base master --head feat/add-x --title "feat: add x" --body-file pr.md
+  - Create as draft, then mark ready:
+    gh pr create --draft ...
+    gh pr ready
+  - Add labels, reviewers, assignees:
+    gh pr edit --add-label "feature" --add-label "deprecation"
+    gh pr request-review @reviewer1 @reviewer2
+    gh pr assign @your-handle
+  - View/checkout/merge:
+    gh pr view --web
+    gh pr checkout <pr-number>
+    gh pr merge --squash --delete-branch
 
 Security and privacy
 - Never hardcode credentials; use env vars or prompt via TTYPasswordGetter.
