@@ -152,6 +152,18 @@ Backwards compatibility and config
 - If reading from the Google Sheet Data sheet, make ranges/sheets configurable and fail with clear errors if missing.
 - If a feature is deprecated, add a feature flag with a clear default (usually disabled), fail fast with a descriptive error, and document how to enable temporarily.
 
++Quality checklist (before submitting changes)
++- Preserves the Staging → review → button → Expenses flow
++- New config keys are optional with safe defaults; docs updated
++- Type/Category outputs align with config["transactions"] and (if used) the Data sheet
++- Dates formatted as %Y-%m-%d; booleans parsed explicitly
++- String comparisons use ==/!= (no is/is not)
++- Logging used instead of print; network calls reasonably robust (timeouts/retries where applicable)
++- Tests (as applicable) pass locally; at least a manual pull → list → push was verified
++- Feature flags: gated appropriately, default safe, usage documented
++- Migration notes included (if deprecations)
++- No stray files or secrets committed
++
 Manual testing (quick guide)
 - Create a virtual env and install requirements.
 - Prepare a minimal YAML config with one repository (Google Sheets) and one account.
