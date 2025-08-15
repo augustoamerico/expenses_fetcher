@@ -1,14 +1,2 @@
-__pycache__
-.idea/
-.vscode/
-.env
-venv/
-config/
-!config/accounts_cfg_example.yaml
-lib/
-bin/
-include/
-credentials.json
-*.sqlite
-token.pickle
-example_csv_raw/
+# Created by venv; see https://docs.python.org/3/library/venv.html
+*

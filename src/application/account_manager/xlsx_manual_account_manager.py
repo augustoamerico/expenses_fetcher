@@ -28,6 +28,7 @@ class XlsxManualAccountManager(IAccountManager):
         sheet_name: Optional[str] = None,
         prompt_for_file_path: bool = True,
         file_path: Optional[str] = None,
+        footer_skip_rows: int = 0,
     ):
         self.account_name = account_name
         self.taggers = taggers
@@ -44,6 +45,7 @@ class XlsxManualAccountManager(IAccountManager):
             thousands_separator=thousands_separator,
             columns=columns,
             sheet_name=sheet_name,
+            footer_skip_rows=footer_skip_rows,
         )
         self._latest_balance_value: Optional[float] = None
         self._latest_balance_date: Optional[datetime.datetime] = None
@@ -73,21 +75,29 @@ class XlsxManualAccountManager(IAccountManager):
             date_init=date_start, date_end=date_end, file_path=path
         )
 
-        # Track latest balance
+        # Track latest balance based on the most recent date within filtered rows
         self._latest_balance_value = None
         self._latest_balance_date = None
 
         txs: List[ITransaction] = []
         for row in raw_rows:
-            capture = row["captureDate"].strftime("%Y/%m/%d")
-            auth = row["authDate"].strftime("%Y/%m/%d")
+            capture_dt = row["captureDate"]
+            auth_dt = row["authDate"]
+            capture = capture_dt.strftime("%Y/%m/%d")
+            auth = auth_dt.strftime("%Y/%m/%d")
             desc = row["description"]
             amount = row["amount"]
             txs.append(FromListTransaction(capture, auth, desc, amount))
 
+            # Update latest balance by max(authDate or captureDate)
             if row.get("balance") is not None:
-                self._latest_balance_value = row["balance"]
-                self._latest_balance_date = row["authDate"] or row["captureDate"]
+                row_dt = auth_dt or capture_dt
+                if (
+                    self._latest_balance_date is None
+                    or (row_dt is not None and row_dt > self._latest_balance_date)
+                ):
+                    self._latest_balance_value = row["balance"]
+                    self._latest_balance_date = row_dt
 
         return txs
 
@@ -98,11 +108,44 @@ class XlsxManualAccountManager(IAccountManager):
         pass
 
     def get_balance(self) -> Balance:
-        if self._latest_balance_value is not None:
+        """Return most recent balance from the XLSX.
+        If already computed during _get_transactions for this run, reuse it.
+        Otherwise, read the full file (respecting header/footer skips) and pick the row
+        with the maximum (authDate or captureDate).
+        """
+        if self._latest_balance_value is not None and self._latest_balance_date is not None:
             return Balance(
                 balance_date=self._latest_balance_date,
                 updated_date_time=datetime.datetime.now(),
                 balance=self._latest_balance_value,
+                account=None,
+            )
+
+        try:
+            path = self._resolve_file_path()
+        except Exception:
+            return None
+
+        all_rows = self.transactions_fetcher.getTransactions(
+            date_init=None, date_end=None, file_path=path
+        )
+        # Select the row with the most recent date among those with a balance
+        latest = None
+        latest_dt = None
+        for row in all_rows:
+            if row.get("balance") is None:
+                continue
+            row_dt = row["authDate"] or row["captureDate"]
+            if row_dt is None:
+                continue
+            if latest_dt is None or row_dt > latest_dt:
+                latest_dt = row_dt
+                latest = row
+        if latest is not None:
+            return Balance(
+                balance_date=latest_dt,
+                updated_date_time=datetime.datetime.now(),
+                balance=latest["balance"],
                 account=None,
             )
         return None

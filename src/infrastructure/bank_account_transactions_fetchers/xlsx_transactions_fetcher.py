@@ -16,6 +16,7 @@ class XlsxTransactionsFetcher(ITransactionsFetcher):
         thousands_separator: str,
         columns: Dict[str, str],
         sheet_name: Optional[str] = None,
+        footer_skip_rows: int = 0,
     ):
         self.header_skip_rows = header_skip_rows
         self.date_format = date_format
@@ -23,14 +24,19 @@ class XlsxTransactionsFetcher(ITransactionsFetcher):
         self.thousands_separator = thousands_separator
         self.columns = columns
         self.sheet_name = sheet_name
+        self.footer_skip_rows = footer_skip_rows
 
     def _parse_date(self, value) -> Optional[datetime]:
-        if value is None or value == "":
+        try:
+            if value is None or value == "":
+                return None
+            if isinstance(value, datetime):
+                return value
+            # treat as string
+            return datetime.strptime(str(value).strip(), self.date_format)
+        except Exception:
+            # Non-date footer or malformed cell
             return None
-        if isinstance(value, datetime):
-            return value
-        # treat as string
-        return datetime.strptime(str(value).strip(), self.date_format)
 
     def _parse_amount(self, value: Optional[str]) -> float:
         if value is None or value == "":
@@ -60,13 +66,24 @@ class XlsxTransactionsFetcher(ITransactionsFetcher):
                 raise Exception(f"Column '{name}' not found in XLSX headers")
             return col_idx[name]
 
+        # Determine last data row (exclude footer rows if configured)
+        max_row_inclusive = ws.max_row
+        if self.footer_skip_rows and max_row_inclusive - self.footer_skip_rows > header_row_idx:
+            max_row_inclusive = max_row_inclusive - self.footer_skip_rows
+
         rows = []
-        for row in ws.iter_rows(min_row=header_row_idx + 1, values_only=True):
+        for row in ws.iter_rows(min_row=header_row_idx + 1, max_row=max_row_inclusive, values_only=True):
             capture = self._parse_date(row[idx(self.columns["capture_date"])])
             auth = self._parse_date(row[idx(self.columns.get("auth_date", self.columns["capture_date"]))])
             if auth is None:
                 auth = capture
-            description = row[idx(self.columns["description"])].strip()
+
+            # Skip rows without any valid date (likely footers or banners)
+            if capture is None and auth is None:
+                continue
+
+            description_cell = row[idx(self.columns["description"])]
+            description = str(description_cell).strip() if description_cell is not None else ""
             debit = self._parse_amount(row[idx(self.columns["debit"])])
             credit = self._parse_amount(row[idx(self.columns["credit"])])
             amount = credit - debit
@@ -76,9 +93,6 @@ class XlsxTransactionsFetcher(ITransactionsFetcher):
                     balance = self._parse_amount(row[idx(self.columns["balance"])])
                 except Exception:
                     balance = None
-
-            if capture is None and auth is None:
-                continue
 
             # Date range filter
             if date_init is not None and auth.date() < date_init.date():
