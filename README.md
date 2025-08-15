@@ -1,6 +1,6 @@
 # Expenses Fetcher
 
-A small CLI tool to pull personal finance transactions from multiple sources (banks/APIs), categorize them, and push them into repositories such as Google Sheets or Buxfer. It also tracks account balances and supports basic deduplication.
+A small CLI tool to pull personal finance transactions from multiple sources (banks/APIs), categorize them, and push them into repositories such as Google Sheets. It also tracks account balances and supports basic deduplication.
 
 Highlights
 - Repository-first workflow: keep categorization and dashboards in your repository (Google Sheets today; Excel planned).
@@ -8,6 +8,7 @@ Highlights
   - ActivoBank (web automation with Selenium)
   - MyEdenred (official API)
   - Nordigen/GoCardless (open banking API)
+  - Manual XLSX imports (xlsx-manual) for banks without open banking
 - Categorize using:
   - Regular expressions
   - Historic matching learned from your repository (for both Category and Type)
@@ -15,9 +16,9 @@ Highlights
   - Learns and suggests Type (Debt, Income, Investment, Transfer) from your own history and configured labels
 - Push data to:
   - Google Sheets (with OAuth)
-  - Buxfer (with login)
+  - [Optional, deprecated] Buxfer (behind FEATURES_ENABLE_BUXFER)
 - Interactive shell to pull, list, sort, and push
-- Balance tracking and appending to repositories
+- Balance tracking and appending to repositories (xlsx-manual appends latest balance)
 
 ---
 
@@ -38,10 +39,11 @@ Prerequisites
 - For Google Sheets:
   - Google Cloud project with “Google Sheets API” enabled
   - OAuth client credentials JSON file
+- For XLSX imports:
+  - openpyxl
 - Network access to:
   - MyEdenred API
   - Nordigen/GoCardless API
-  - Buxfer API (if used)
 
 ---
 
@@ -85,8 +87,9 @@ Place your YAML config anywhere (e.g., config/your_config.yaml) and pass it to t
 
 Minimal example (adjust to your needs):
 
-- Google Sheets + Buxfer as repositories
+- Google Sheets as repository
 - ActivoBank, MyEdenred, Nordigen as accounts
+- BancoInvest (xlsx-manual) as a manual file-based account
 
 Example config
 
@@ -107,22 +110,20 @@ repositories:
     accounts_balance_start_cell: "A2"
     token_cache_path: "token.pickle"
     credentials_path: "credentials.json"
-
-  buxfer:
-    username: "your_email@example.com"
-    # Either provide password directly (not recommended) or via env var:
-    # password: "plaintext"
-    password_env: "BUXFER_PASSWORD"
-    define_type:
-      transfer:
-        - to:
-            account_name: "Savings"
-            description: "Transfer to Savings"
-            category: "Transfers"
-          from:
-            account_name: "Checking"
-            description: "Transfer to Savings"
-            category: "Transfers"
+  # Optional, deprecated sink (disabled by default; enable with FEATURES_ENABLE_BUXFER=true)
+  # buxfer:
+  #   username: "your_email@example.com"
+  #   password_env: "BUXFER_PASSWORD"
+  #   define_type:
+  #     transfer:
+  #       - to:
+  #           account_name: "Savings"
+  #           description: "Transfer to Savings"
+  #           category: "Transfers"
+  #         from:
+  #           account_name: "Checking"
+  #           description: "Transfer to Savings"
+  #           category: "Transfers"
 
 accounts:
   Active Main Card:
@@ -144,9 +145,9 @@ accounts:
     username_env: "EDENRED_USER"
     password_env: "EDENRED_PASS"
     category_taggers:
-        regex:
-          Restaurants: ["(?i)restaurant|cafe|menu"]
-        historic_from: {}
+      regex:
+        Restaurants: ["(?i)restaurant|cafe|menu"]
+      historic_from: {}
 
   OpenBanking Account:
     type: nordigen-account
@@ -160,6 +161,28 @@ accounts:
         Rent: ["(?i)rent|landlord"]
       historic_from: {}
 
+  BancoInvest Movements:
+    type: xlsx-manual
+    prompt_for_file_path: true
+    header_skip_rows: 8
+    footer_skip_rows: 1
+    date_format: "%d-%m-%Y"
+    decimal_separator: ","
+    thousands_separator: " "
+    columns:
+      capture_date: "Data Operação"
+      auth_date: "Data Valor"
+      description: "Descrição"
+      debit: "Débito"
+      credit: "Crédito"
+      balance: "Saldo"
+    category_taggers:
+      regex:
+        Interest: ["(?i)juros|interest"]
+      historic_from: {}
+    exclude_regex:
+      - "(?i)mb\\s*way"
+
 transactions:
   debt: "Debt"
   income: "Income"
@@ -169,9 +192,8 @@ transactions:
 ```
 
 Notes:
-- Regex tagger: map category names to a list of regex patterns; only the first item is used internally.
-- historic_from: include the key to enable; it will learn from your repository’s history by Description (Category and Type modes).
-- For Buxfer transfers, define “to/from” rules to correctly mark inter-account transfers.
+- historic_from: learns Category and Type by Description from your repository.
+- xlsx-manual: prompts for a file path unless file_path is configured; applies header/footer skips; normalizes locale decimals/thousands; unifies debit/credit -> signed amount; appends the most recent balance.
 
 ---
 
@@ -182,9 +204,10 @@ How it works
     - ActivoBank: src/application/account_manager/active_bank_account_manager.py
     - MyEdenred: src/application/account_manager/myedenred_account_manager.py
     - Nordigen: src/application/account_manager/nordigen_account_manager.py
+    - Manual XLSX: src/application/account_manager/xlsx_manual_account_manager.py
   - Repositories are created for each sink:
     - Google Sheets: src/repository/google_sheet_repository.py
-    - Buxfer: src/repository/buxfer_repository.py
+    - [Optional] Buxfer (deprecated; behind feature flag): src/repository/buxfer_repository.py
   - Taggers are wired into each account:
     - RegexTagger for rule-based categories
     - HistoricTagger to suggest both Category and Type from your past "Expenses" history
@@ -201,6 +224,10 @@ Type resolution
 - If a tagger (e.g., HistoricTagger) suggests a Type, it is used.
 - Otherwise, derive with priority: Transfer > Investment > Debt > Income.
 - Transfer convention: if Category equals any configured account name, mark as Transfer unless a tagger already set Type.
+
+Additional behavior
+- Last Auth Date by Source: If you omit date_start, the app reads your “Data” sheet A2:B (account, last date) and uses that as the lower bound for each account, including xlsx-manual.
+- Balances: The app calls get_balance before fetching transactions. For xlsx-manual, the importer reads the file (respecting header/footer skips) and appends the most recent balance (by auth date; fallback to capture date) to "Accounts Balance".
 
 ---
 
@@ -236,7 +263,7 @@ Commands
 
 - push
   - Parameters:
-    - repository_name=googlesheet|buxfer (optional; default: all configured)
+    - repository_name=googlesheet (optional; default: all configured)
   - Examples:
     ```bash
     push
@@ -284,15 +311,6 @@ Google Sheets repository
 
 ---
 
-Buxfer repository
-
-- Logs in with username/password (prompted via TTY if not provided)
-- Adds transactions per account; optional deduplication by comparing with most recent account transactions
-- Transfer handling:
-  - Use define_type.transfer rules in the repository config to detect “from/to” sides of inter-account transfers and record them correctly
-
----
-
 Future sinks: Excel Online
 - The repository abstraction is designed to support an ExcelRepository that mirrors the Google Sheets experience (staging sheet, final sheet, metadata). This enables the same repository-first workflow for Excel users.
 
@@ -326,7 +344,10 @@ Troubleshooting
 - Nordigen errors:
   - Verify secret_id/secret_key and account UUID
   - Check network access to bankaccountdata.gocardless.com
-- Buxfer login failures:
+- Footer/banners: Set footer_skip_rows to ignore trailing non-transaction rows.
+- Date errors (time data '...' does not match format): Ensure date_format matches the export (e.g., "%d-%m-%Y"). Non-transaction rows should be ignored via footer_skip_rows.
+- Separators: Set decimal_separator and thousands_separator to match your XLSX (e.g., "," and " ").
+- [Optional, when Buxfer is enabled] Buxfer login failures:
   - Confirm credentials and API availability
   - If 2FA is enabled, ensure you can authenticate via the API
 
@@ -358,9 +379,11 @@ Project layout
 
 - main.py: entry point and interactive shell
 - src/application: orchestration (expenses fetcher), account managers, transaction flattening
+- src/application/account_manager/xlsx_manual_account_manager.py: manual XLSX account manager (prompts path; converts rows; publishes latest balance)
 - src/domain: domain models (transactions, balances), category taggers
 - src/infrastructure/bank_account_transactions_fetchers: source-specific fetchers (web/API)
-- src/repository: repository (sink) implementations for Google Sheets and Buxfer
+- src/infrastructure/bank_account_transactions_fetchers/xlsx_transactions_fetcher.py: XLSX fetcher (header/footer skips; locale parsing)
+- src/repository: repository (sink) implementations for Google Sheets
 - src/service/configuration: YAML config parsing and wiring
 - tests/: unit tests
 
