@@ -111,25 +111,23 @@ def parse_remove_transaction_description_prefix(account):
 
 
 def get_general_account_info(account, account_name, repositories) -> GeneralAccountInfo:
+    username = None
+    password = None
     if "username_env" in account:
         username = os.environ[account["username_env"]]
     elif "username" in account:
         username = account["username"]
-    else:
-        raise Exception(f"You must define a username for the account {account_name}")
 
     if "password_env" in account:
         password = os.environ[account["password_env"]]
     elif "password" in account:
         password = account["password"]
-    else:
-        password = None
 
     remove_transaction_description_prefix = parse_remove_transaction_description_prefix(
         account
     )
 
-    taggers = parse_taggers(account["category_taggers"], next(iter(repositories)))
+    taggers = parse_taggers(account.get("category_taggers", {}), next(iter(repositories)))
 
     return GeneralAccountInfo(
         username=username,
@@ -153,6 +151,9 @@ def parse_account(
             account, account_name, repositories
         )
 
+        if general_account_info.username is None:
+            raise Exception(f"You must define a username for the account {account_name}")
+
         return ActiveBankAccountManager(
             str(account["card_number"]),
             general_account_info.username,
@@ -172,6 +173,9 @@ def parse_account(
         general_account_info = get_general_account_info(
             account, account_name, repositories
         )
+
+        if general_account_info.username is None:
+            raise Exception(f"You must define a username for the account {account_name}")
 
         return MyEdenredAccountManager(
             str(account["card_number"]),
@@ -194,4 +198,27 @@ def parse_account(
             account["account"],
             parse_remove_transaction_description_prefix(account),
             parse_taggers(account["category_taggers"], next(iter(repositories))),
+        )
+    elif account_type == "xlsx-manual":
+        XlsxManualAccountManager = importlib.import_module(
+            "src.application.account_manager.xlsx_manual_account_manager",
+            package=__package__,
+        ).XlsxManualAccountManager
+
+        taggers = parse_taggers(account.get("category_taggers", {}), next(iter(repositories)))
+        remove_prefix = parse_remove_transaction_description_prefix(account)
+        columns = account["columns"]
+
+        return XlsxManualAccountManager(
+            account_name=account_name,
+            header_skip_rows=account.get("header_skip_rows", 8),
+            date_format=account.get("date_format", "%d-%m-%Y"),
+            decimal_separator=account.get("decimal_separator", ","),
+            thousands_separator=account.get("thousands_separator", " "),
+            columns=columns,
+            remove_transaction_description_prefix=remove_prefix,
+            taggers=taggers,
+            sheet_name=account.get("sheet_name"),
+            prompt_for_file_path=account.get("prompt_for_file_path", True),
+            file_path=account.get("file_path"),
         )
