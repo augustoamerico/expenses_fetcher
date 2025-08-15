@@ -22,6 +22,7 @@ Repository architecture (overview)
     - active_bank_account_manager.py: wraps Selenium crawler for ActivoBank; converts rows to domain transactions.
     - myedenred_account_manager.py: wraps MyEdenred fetcher; converts rows to domain transactions.
     - nordigen_account_manager.py: wraps Nordigen fetcher; converts rows to domain transactions; fetches balances.
+    - xlsx_manual_account_manager.py: prompts for file path (or uses config), converts rows to domain transactions, exposes latest balance.
     - exceptions.py: account-related exceptions.
   - password_getter/
     - password_getter.py: interface used to obtain secrets on demand.
@@ -39,6 +40,7 @@ Repository architecture (overview)
   - balance/
     - balance.py: Balance dataclass and list serialization for pushing to repositories.
 - src/infrastructure/bank_account_transactions_fetchers
+  - xlsx_transactions_fetcher.py: XLSX parser with config-driven columns, header_skip_rows, footer_skip_rows, and locale-specific parsing.
   - i_transactions_fetcher.py: interface for source fetchers.
   - active_bank_fetcher_crawler.py: Selenium automation to log in and download XLSX; parses rows via openpyxl.
   - myedenred_fetcher.py: HTTP API client for MyEdenred; returns movement lists.
@@ -133,6 +135,16 @@ Patterns for common contributions (updated)
   - Create a fetcher under src/infrastructure/bank_account_transactions_fetchers/* that returns a list of raw dicts.
   - Add an AccountManager to convert raw dicts to domain transactions and expose taggers.
   - Extend configuration_parser.parse_account to support type: <your-source> and pass config (date formats, decimal separators, column mappings).
+- Add a new manual file-based source (XLSX/CSV)
+  - Implement a fetcher with:
+    - config-driven column mapping (capture_date, auth_date, description, debit/credit or amount, optional balance)
+    - header_skip_rows and footer_skip_rows
+    - date_format, decimal_separator, thousands_separator
+  - Implement an AccountManager that:
+    - Prompts for file path if not configured (prompt_for_file_path)
+    - Converts to domain transactions (normalize debit/credit into signed amount)
+    - Implements get_balance that works even if called before transactions are fetched (read full file, pick the most recent balance row)
+  - Keep everything repository-first: stage into Sheets; do not bypass manual review.
 - Add a new sink (repository)
   - Implement IRepository; look at GoogleSheetRepository for range read/write, dedupe, metadata helpers.
   - Keep output row schema and labels consistent with config.
@@ -181,6 +193,11 @@ Manual testing (quick guide)
     - Windows (PowerShell):
       $env:FEATURES_ENABLE_BUXFER = "true"
       python main.py --config-file path/to/config.yaml
+- For xlsx-manual:
+  - footer_skip_rows skips trailing non-transaction rows
+  - Staged rows have normalized %Y-%m-%d dates; amount = credit − debit
+  - Latest balance is appended (most recent auth/capture date)
+  - Last Auth Date by Source is respected when date_start is omitted
 
 PR template (for LLMs)
 - Title: Short, descriptive
@@ -223,6 +240,8 @@ PRs and branching (conventions and gh)
     gh pr view --web
     gh pr checkout <pr-number>
     gh pr merge --squash --delete-branch
+- Link issues in PRs (e.g., “Closes #5”). For long PR bodies, prefer: gh pr create --body-file pr.md to avoid shell quoting problems.
+
 
 Security and privacy
 - Never hardcode credentials; use env vars or prompt via TTYPasswordGetter.
