@@ -11,3 +11,4 @@ include/
 credentials.json
 *.sqlite
 token.pickle
+example_csv_raw/
