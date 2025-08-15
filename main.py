@@ -14,21 +14,12 @@ import logging
 
 log = logging.getLogger(__file__)
 
-parser = argparse.ArgumentParser(description="ExpenseFetcher")
-parser.add_argument(
-    "--config-file", dest="config_file", help="expense fetcher config file path"
-)
+def build_expense_fetcher(config, password_getter_repo=None, password_getter=None):
+    if password_getter_repo is None:
+        password_getter_repo = TTYPasswordGetter("Password for repository {} :")
 
-args = parser.parse_args()
-
-log.debug(args.config_file)
-
-password_getter = TTYPasswordGetter("Password for account {} :")
-password_getter_repo = TTYPasswordGetter("Password for repository {} :")
-config = yaml.load(open(args.config_file), Loader=yaml.FullLoader)
-
-
-def build_expense_fetcher(config):
+    if password_getter is None:
+        password_getter = TTYPasswordGetter("Password for account {} :")
 
     if "expense_fetcher_options" in config:
         if "tmp_dir_path" in config["expense_fetcher_options"]:
@@ -244,5 +235,18 @@ def parse(arg):
 
 
 if __name__ == "__main__":
-    expense_fetcher = build_expense_fetcher(config)
+    parser = argparse.ArgumentParser(description="ExpenseFetcher")
+    parser.add_argument(
+        "--config-file", dest="config_file", help="expense fetcher config file path"
+    )
+
+    args = parser.parse_args()
+
+    log.debug(args.config_file)
+
+    password_getter = TTYPasswordGetter("Password for account {} :")
+    password_getter_repo = TTYPasswordGetter("Password for repository {} :")
+    config = yaml.load(open(args.config_file), Loader=yaml.FullLoader)
+
+    expense_fetcher = build_expense_fetcher(config, password_getter_repo, password_getter)
     ExpenseFetcherShell(expense_fetcher).cmdloop()
