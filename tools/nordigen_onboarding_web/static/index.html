@@ -73,17 +73,24 @@
   </div>
 
   <div class="card">
-    <h3>5) Requisitions / Consent</h3>
-    <label>Redirect base (e.g., http://localhost:8787)</label>
-    <input id="redirect_base" type="text" value="http://localhost:8787" />
-    <button onclick="createRequisitions()">Create requisitions</button>
-    <div id="requisitions"></div>
-  </div>
+    <h3>Add Accounts</h3>
+    <p>Select an option below:</p>
+    <label><input type="radio" name="account_option" value="existing" onclick="toggleAccountFlow()"> Use Existing Account IDs</label>
+    <label><input type="radio" name="account_option" value="requisitions" onclick="toggleAccountFlow()"> Use Requisitions</label>
 
-  <div class="card">
-    <h3>6) Accounts</h3>
-    <button onclick="loadAccounts()">Load accounts for requisitions</button>
-    <div id="accounts"></div>
+    <div id="existingAccounts" style="display: none;">
+      <h4>Use Existing Account IDs</h4>
+      <label>Enter Account IDs (comma-separated):</label>
+      <input id="existing_account_ids" type="text" placeholder="e.g., acc-1, acc-2, acc-3" />
+      <button onclick="importAccounts()">Import Accounts</button>
+      <div id="import_accounts_status"></div>
+    </div>
+
+    <div id="requisitionsFlow" style="display: none;">
+      <h4>Use Requisitions</h4>
+      <button onclick="initiateRequisitionFlow()">Load and Create Requisitions</button>
+      <div id="requisitions_status"></div>
+    </div>
   </div>
 
   <div class="card">
@@ -223,6 +230,23 @@
           div.appendChild(line);
         });
       }
+    }
+
+    async function importAccounts() {
+      const accountIDs = document.getElementById('existing_account_ids').value.split(',').map(id => id.trim());
+      const res = await fetch('/api/import_accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account_ids: accountIDs })
+      });
+      const j = await res.json();
+      document.getElementById('import_accounts_status').innerText = JSON.stringify(j);
+    }
+
+    function toggleAccountFlow() {
+      const selectedOption = document.querySelector('input[name="account_option"]:checked').value;
+      document.getElementById('existingAccounts').style.display = selectedOption === 'existing' ? 'block' : 'none';
+      document.getElementById('requisitionsFlow').style.display = selectedOption === 'requisitions' ? 'block' : 'none';
     }
 
     async function setupGoogleSheets() {

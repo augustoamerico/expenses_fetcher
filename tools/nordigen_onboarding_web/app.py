@@ -295,6 +295,38 @@ def setup_google_sheets():
     return jsonify({"ok": True, "path": state.config_file})
 
 
+@app.route("/api/import_accounts", methods=["POST"])
+def import_accounts():
+    body = request.json or {}
+    account_ids = body.get("account_ids", [])
+
+    if not state.config_file:
+        return jsonify({"error": "Wizard not initialized with config_file"}), 400
+
+    with open(state.config_file, "r") as f:
+        config = yaml.safe_load(f) or {}
+
+    accounts = config.get("accounts", {}) or {}
+
+    for acc_id in account_ids:
+        name = f"Existing Account {acc_id[:8]}"
+        accounts[name] = {
+            "type": "nordigen-account",
+            "secret_id": "${NORDIGEN_SECRET_ID}",
+            "secret_key": "${NORDIGEN_SECRET_KEY}",
+            "account": acc_id,
+            "remove_transaction_description_prefix": False,
+            "category_taggers": {"regex": {}},
+        }
+
+    config["accounts"] = accounts
+
+    with open(state.config_file, "w") as f:
+        yaml.safe_dump(config, f)
+
+    return jsonify({"ok": True, "accounts_added": account_ids})
+
+
 def main():
     parser = argparse.ArgumentParser(description="Nordigen/GoCardless Web Onboarding Wizard")
     parser.add_argument("--config-file", required=True, help="Path to YAML config to update")
