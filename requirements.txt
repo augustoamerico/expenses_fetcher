@@ -26,3 +26,4 @@ openpyxl
 tabulate
 requests_cache
 dotenv
+flask
