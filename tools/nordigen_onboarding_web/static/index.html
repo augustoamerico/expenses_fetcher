@@ -1,0 +1,257 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Nordigen/GoCardless Onboarding Wizard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
+    .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    label { display:block; margin:.5rem 0 .25rem; }
+    input[type=text], input[type=password] { width: 100%; padding: .5rem; }
+    button { padding: .5rem 1rem; margin-top: .5rem; }
+    pre { background: #f8f8f8; padding: 1rem; overflow:auto; }
+    .institution-list {
+      margin-top: 1rem;
+    }
+    .institution-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .institution-item input {
+      margin-right: 0.5rem;
+    }
+    .institution-item:hover {
+      background-color: #f0f0f0;
+      border-radius: 5px;
+    }
+    .institution-name {
+      font-weight: bold;
+      margin-right: 0.3rem;
+    }
+    .institution-code {
+      color: #666;
+    }
+  </style>
+</head>
+<body>
+  <h1>Nordigen/GoCardless Onboarding Wizard</h1>
+
+  <div class="card">
+    <h3>1) Initialize</h3>
+    <label>Config file path</label>
+    <input id="config_file" type="text" placeholder="config/my_config.yaml" />
+    <label>Country code</label>
+    <input id="country" type="text" value="pt" />
+    <button onclick="initWizard()">Initialize</button>
+    <div id="init_status"></div>
+  </div>
+
+  <div class="card">
+    <h3>2) Credentials</h3>
+    <label>Secret ID</label>
+    <input id="secret_id" type="text" />
+    <label>Secret Key</label>
+    <input id="secret_key" type="password" />
+    <button onclick="submitCreds()">Save credentials</button>
+    <button onclick="getToken()">Get access token</button>
+    <div id="token_status"></div>
+  </div>
+
+  <div class="card">
+    <h3>3) Select Your Banks</h3>
+    <p>Select the institutions you want to connect to:</p>
+    <button onclick="loadInstitutions()">Load institutions</button>
+    <div id="institutions" class="institution-list"></div>
+  </div>
+
+  <div class="card">
+    <h3>4) Agreements</h3>
+    <button onclick="createAgreements()">Create agreements for selected</button>
+    <div id="agreements_status"></div>
+  </div>
+
+  <div class="card">
+    <h3>5) Requisitions / Consent</h3>
+    <label>Redirect base (e.g., http://localhost:8787)</label>
+    <input id="redirect_base" type="text" value="http://localhost:8787" />
+    <button onclick="createRequisitions()">Create requisitions</button>
+    <div id="requisitions"></div>
+  </div>
+
+  <div class="card">
+    <h3>6) Accounts</h3>
+    <button onclick="loadAccounts()">Load accounts for requisitions</button>
+    <div id="accounts"></div>
+  </div>
+
+  <div class="card">
+    <h3>Google Sheets Setup</h3>
+    <p>1. <a href="https://console.developers.google.com/apis/" target="_blank">Create a new Google Cloud project</a>.</p>
+    <p>2. Enable the Google Sheets API.</p>
+    <p>3. Create OAuth credentials:</p>
+    <ul>
+      <li>API: Google Sheets API</li>
+      <li>Called from: Other UI (e.g., Windows, CLI tool)</li>
+      <li>Access: Application data</li>
+      <li>Role: Editor</li>
+    </ul>
+    <p>4. Download the credentials JSON and save it as indicated in the configuration input fields below.</p>
+    <p>5. <a href="https://docs.google.com/spreadsheets/d/1A5YeNDhnj03jKcJWAfoVrEBWd-2CjTN0HkDJ6yO0oRk/edit?usp=sharing" target="_blank">Copy this Google Sheets template</a> to your own account.</p>
+
+    <label>Spreadsheet ID</label>
+    <input id="spreadsheet_id" type="text" placeholder="Enter Spreadsheet ID from URL" />
+    <label>OAuth Credentials Path (credentials.json)</label>
+    <input id="credentials_path" type="text" value="./credentials.json" />
+    <label>Token Cache Path</label>
+    <input id="token_cache_path" type="text" value="./token.pickle" />
+    <button onclick="setupGoogleSheets()">Setup Google Sheets</button>
+    <div id="google_sheets_status"></div>
+  </div>
+
+  <div class="card">
+    <h3>7) Category autofill</h3>
+    <label>Enable historic tagger?</label>
+    <select id="historic_mode">
+      <option value="off">Off</option>
+      <option value="global">On (Global history)</option>
+      <option value="same_account">On (Same account only)</option>
+    </select>
+  </div>
+
+  <div class="card">
+    <h3>8) Preview & Write</h3>
+    <button onclick="previewConfig()">Preview</button>
+    <pre id="preview"></pre>
+    <button onclick="writeConfig()">Write to config</button>
+    <div id="write_status"></div>
+  </div>
+
+  <script>
+    let selectedInstitutions = new Set();
+    let requisitions = [];
+    let accounts = [];
+
+    async function initWizard(){
+      const res = await fetch('/api/init', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({config_file: document.getElementById('config_file').value, country: document.getElementById('country').value})});
+      const j = await res.json();
+      document.getElementById('init_status').innerText = JSON.stringify(j);
+    }
+
+    async function submitCreds(){
+      const res = await fetch('/api/credentials', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({secret_id: document.getElementById('secret_id').value, secret_key: document.getElementById('secret_key').value})});
+      const j = await res.json();
+      alert(JSON.stringify(j));
+    }
+
+    async function getToken(){
+      const res = await fetch('/api/token', {method:'POST'});
+      const j = await res.json();
+      document.getElementById('token_status').innerText = JSON.stringify(j);
+    }
+
+    async function loadInstitutions() {
+      const res = await fetch('/api/institutions');
+      const list = await res.json();
+      const div = document.getElementById('institutions');
+      div.innerHTML = '';
+      list.forEach(inst => {
+        const checkbox = document.createElement('input');
+        const itemDiv = document.createElement('div');
+        const nameSpan = document.createElement('span');
+        const codeSpan = document.createElement('span');
+
+        checkbox.type = 'checkbox';
+        checkbox.id = 'inst_' + inst.id;
+        checkbox.onchange = () => {
+          if (checkbox.checked) selectedInstitutions.add(inst.id);
+          else selectedInstitutions.delete(inst.id);
+        };
+
+        nameSpan.className = 'institution-name';
+        nameSpan.textContent = inst.name;
+
+        codeSpan.className = 'institution-code';
+        codeSpan.textContent = '(' + inst.id + ')';
+
+        itemDiv.className = 'institution-item';
+        itemDiv.appendChild(checkbox);
+        itemDiv.appendChild(nameSpan);
+        itemDiv.appendChild(codeSpan);
+        div.appendChild(itemDiv);
+      });
+    }
+
+    async function createAgreements(){
+      const inst = Array.from(selectedInstitutions);
+      const res = await fetch('/api/agreements', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({institutions: inst})});
+      const j = await res.json();
+      document.getElementById('agreements_status').innerText = JSON.stringify(j);
+    }
+
+    async function createRequisitions(){
+      const inst = Array.from(selectedInstitutions);
+      const res = await fetch('/api/requisitions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({institutions: inst, redirect_base: document.getElementById('redirect_base').value})});
+      const j = await res.json();
+      requisitions = j;
+      const div = document.getElementById('requisitions');
+      div.innerHTML = '';
+      j.forEach(r => {
+        const a = document.createElement('a');
+        a.href = r.link; a.innerText = 'Open consent: ' + r.institution_id; a.target = '_blank';
+        const line = document.createElement('div');
+        line.appendChild(a); div.appendChild(line);
+      });
+    }
+
+    async function loadAccounts(){
+      const div = document.getElementById('accounts');
+      div.innerHTML = '';
+      accounts = [];
+      for(const r of requisitions){
+        const res = await fetch('/api/requisitions/' + r.id + '/accounts');
+        const j = await res.json();
+        j.accounts.forEach(acc => {
+          const id = 'acc_' + acc;
+          const line = document.createElement('div');
+          const cb = document.createElement('input');
+          cb.type = 'checkbox'; cb.id = id; cb.onchange = () => { if(cb.checked) accounts.push({account_id: acc, name: ''}); else accounts = accounts.filter(x => x.account_id !== acc); };
+          const inName = document.createElement('input'); inName.placeholder = 'Account name (optional)'; inName.onchange = () => { const idx = accounts.findIndex(x => x.account_id === acc); if(idx>=0) accounts[idx].name = inName.value; };
+          const label = document.createElement('label'); label.htmlFor = id; label.innerText = acc;
+          line.appendChild(cb); line.appendChild(label); line.appendChild(inName);
+          div.appendChild(line);
+        });
+      }
+    }
+
+    async function setupGoogleSheets() {
+      const res = await fetch('/api/google_sheets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          spreadsheet_id: document.getElementById('spreadsheet_id').value,
+          credentials_path: document.getElementById('credentials_path').value,
+          token_cache_path: document.getElementById('token_cache_path').value
+        })
+      });
+      const j = await res.json();
+      document.getElementById('google_sheets_status').innerText = JSON.stringify(j);
+    }
+
+    async function previewConfig(){
+      const mode = document.getElementById('historic_mode').value;
+      const res = await fetch('/api/config/preview', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({selected_accounts: accounts, enable_historic: mode})});
+      const j = await res.json();
+      document.getElementById('preview').innerText = j.preview || JSON.stringify(j);
+    }
+
+    async function writeConfig(){
+      const preview = document.getElementById('preview').innerText;
+      const res = await fetch('/api/config/write', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({preview})});
+      const j = await res.json();
+      document.getElementById('write_status').innerText = JSON.stringify(j);
+    }
+  </script>
+</body>
+</html>
