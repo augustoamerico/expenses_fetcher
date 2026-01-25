@@ -39,10 +39,9 @@ requests.get(
 #%% 
 # Step 3: Create enduser agreement
 SELECTED_BANKS=[
-    "BANCOACTIVOBANK_ACTVPTPL",
-    #"BANKINTER_BKBKPTPL",
-    #"BANCOCTT_CTTVPTPL",
-    "CAIXA_GERAL_DEPOSITOS_CGDIPTPL"
+    #"BANCOACTIVOBANK_ACTVPTPL",
+    #"CAIXA_GERAL_DEPOSITOS_CGDIPTPL",
+    "REVOLUT_REVOLT21"
 ]
 
 agreements_requests = []

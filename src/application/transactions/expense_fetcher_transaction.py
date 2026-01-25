@@ -22,7 +22,7 @@ class ExpenseFetcherTransaction:
                 self.transaction_type = debt_description
             elif transaction.is_transfer():
                 self.transaction_type = transfer_description
-            elif transaction.is_invesment():
+            elif transaction.is_investment():
                 self.transaction_type = investment_description
             else:
                 self.transaction_type = income_description

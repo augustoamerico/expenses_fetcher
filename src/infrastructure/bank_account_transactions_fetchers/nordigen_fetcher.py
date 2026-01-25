@@ -72,6 +72,17 @@ class NordigenFetcher(ITransactionsFetcher):
                     self._parse_transaction(trx) for trx in trxs["transactions"]["booked"]
                 ]
             except KeyError as e:
+                if (
+                    isinstance(trxs, dict)
+                    and trxs.get("detail") == "Institution service unavailable"
+                    and trxs.get("status_code") == 503
+                    and trxs.get("type") == "ServiceError"
+                ):
+                    print(
+                        "Institution service unavailable; skipping transactions fetch "
+                        f"for account {self.account}"
+                    )
+                    return []
                 print(f"Error while parsing transactions from account {self.account}")
                 print(trxs)
                 raise e
