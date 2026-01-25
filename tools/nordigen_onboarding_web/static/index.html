@@ -1,153 +1,354 @@
 <!doctype html>
-<html>
+<html lang="en">
 <head>
   <meta charset="utf-8" />
   <title>Nordigen/GoCardless Onboarding Wizard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <!-- Pro look with zero heavy dependencies -->
+  <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@latest/css/pico.min.css" />
+
   <style>
-    body { font-family: -apple-system, Segoe UI, Roboto, sans-serif; margin: 2rem; }
-    .card { border: 1px solid #ddd; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-    label { display:block; margin:.5rem 0 .25rem; }
-    input[type=text], input[type=password] { width: 100%; padding: .5rem; }
-    button { padding: .5rem 1rem; margin-top: .5rem; }
-    pre { background: #f8f8f8; padding: 1rem; overflow:auto; }
+    :root { --accent: hsl(212 100% 45%); }
+    header { margin-block: 1.5rem 1rem; }
+    header h1 { margin: 0; }
+    header p { margin: .25rem 0 0 0; color: var(--muted, #6b7280); }
+
+    .card {
+      padding: 1.25rem;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      background: white;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+      margin-bottom: 1rem;
+    }
+    .muted { color: #6b7280; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; }
+    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+
     .institution-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: .75rem;
       margin-top: 1rem;
     }
     .institution-item {
       display: flex;
       align-items: center;
-      margin-bottom: 0.5rem;
+      gap: .5rem;
+      padding: .65rem .75rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #fbfbfb;
     }
-    .institution-item input {
-      margin-right: 0.5rem;
+    .institution-item:hover { background-color: #f7fafc; border-color: #d1d5db; }
+    .institution-name { font-weight: 600; }
+    .institution-code { color: #6b7280; font-size: .9em; }
+
+    .segmented { display: inline-flex; border: 1px solid #e5e7eb; border-radius: 10px; overflow: hidden; }
+    .segmented label { margin: 0; padding: .5rem .8rem; cursor: pointer; user-select: none; border-right: 1px solid #e5e7eb; }
+    .segmented label:last-child { border-right: 0; }
+    .segmented input[type="radio"] { display: none; }
+    .segmented input[type="radio"]:checked + span { background: var(--accent); color: white; }
+
+    .status {
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: .6rem .75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: .9em;
+      white-space: pre-wrap;
     }
-    .institution-item:hover {
-      background-color: #f0f0f0;
-      border-radius: 5px;
-    }
-    .institution-name {
-      font-weight: bold;
-      margin-right: 0.3rem;
-    }
-    .institution-code {
-      color: #666;
-    }
+    .row-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
   </style>
 </head>
 <body>
-  <h1>Nordigen/GoCardless Onboarding Wizard</h1>
+  <main class="container">
+    <header>
+      <h1>Nordigen/GoCardless Onboarding Wizard</h1>
+      <p class="muted">Connect your bank accounts, configure Google Sheets, and bootstrap your YAML config.</p>
+    </header>
 
-  <div class="card">
-    <h3>1) Initialize</h3>
-    <label>Config file path</label>
-    <input id="config_file" type="text" placeholder="config/my_config.yaml" />
-    <label>Country code</label>
-    <input id="country" type="text" value="pt" />
-    <button onclick="initWizard()">Initialize</button>
-    <div id="init_status"></div>
-  </div>
+    <!-- Setup Mode -->
+    <section class="card" id="secMode">
+      <h3>Setup Mode</h3>
+      <p class="muted">Choose the flow that matches your needs:</p>
+      <div class="segmented" role="group" aria-label="Setup mode">
+        <label>
+          <input type="radio" name="setup_mode" value="full" onclick="updateModeUI()" checked />
+          <span>Full setup (Nordigen + Repository)</span>
+        </label>
+        <label>
+          <input type="radio" name="setup_mode" value="accounts" onclick="updateModeUI()" />
+          <span>Accounts only (existing consents)</span>
+        </label>
+        <label>
+          <input type="radio" name="setup_mode" value="repository" onclick="updateModeUI()" />
+          <span>Repository only (Google Sheets)</span>
+        </label>
+      </div>
+      <small id="mode_hint" class="muted">
+        Full setup shows: Credentials, Banks, Agreements, Requisitions, Add Accounts, Category Autofill, and Google Sheets.
+      </small>
+    </section>
 
-  <div class="card">
-    <h3>2) Credentials</h3>
-    <label>Secret ID</label>
-    <input id="secret_id" type="text" />
-    <label>Secret Key</label>
-    <input id="secret_key" type="password" />
-    <button onclick="submitCreds()">Save credentials</button>
-    <button onclick="getToken()">Get access token</button>
-    <div id="token_status"></div>
-  </div>
+    <!-- 1) Initialize -->
+    <section class="card" id="secInit">
+      <h3>1) Initialize</h3>
+      <div class="grid-2">
+        <div>
+          <label for="config_file">Config file path</label>
+          <input id="config_file" type="text" placeholder="config/my_config.yaml" />
+        </div>
+        <div>
+          <label for="country">Country code</label>
+          <input id="country" type="text" value="pt" />
+        </div>
+      </div>
+      <div class="row-actions">
+        <button onclick="initWizard()">Initialize</button>
+      </div>
+      <div id="init_status" class="status" style="margin-top:.6rem;"></div>
+    </section>
 
-  <div class="card">
-    <h3>3) Select Your Banks</h3>
-    <p>Select the institutions you want to connect to:</p>
-    <button onclick="loadInstitutions()">Load institutions</button>
-    <div id="institutions" class="institution-list"></div>
-  </div>
+    <!-- 2) Credentials -->
+    <section class="card" id="secCredentials">
+      <h3>2) Credentials</h3>
+      <div class="grid-2">
+        <div>
+          <label for="secret_id">Secret ID</label>
+          <input id="secret_id" type="text" />
+        </div>
+        <div>
+          <label for="secret_key">Secret Key</label>
+          <input id="secret_key" type="password" />
+        </div>
+      </div>
+      <div class="row-actions">
+        <button onclick="submitCreds()">Save credentials</button>
+        <button class="secondary" onclick="getToken()">Get access token</button>
+      </div>
+      <div id="token_status" class="status" style="margin-top:.6rem;"></div>
+    </section>
 
-  <div class="card">
-    <h3>4) Agreements</h3>
-    <button onclick="createAgreements()">Create agreements for selected</button>
-    <div id="agreements_status"></div>
-  </div>
+    <!-- 3) Banks -->
+    <section class="card" id="secBanks">
+      <h3>3) Select Your Banks</h3>
+      <p class="muted">Select the institutions you want to connect to:</p>
+      <div class="row-actions">
+        <button onclick="loadInstitutions()">Load institutions</button>
+      </div>
+      <div id="institutions" class="institution-list"></div>
+    </section>
 
-  <div class="card">
-    <h3>Add Accounts</h3>
-    <p>Select an option below:</p>
-    <label><input type="radio" name="account_option" value="existing" onclick="toggleAccountFlow()"> Use Existing Account IDs</label>
-    <label><input type="radio" name="account_option" value="requisitions" onclick="toggleAccountFlow()"> Use Requisitions</label>
+    <!-- 4) Agreements -->
+    <section class="card" id="secAgreements">
+      <h3>4) Agreements</h3>
+      <div class="row-actions">
+        <button onclick="createAgreements()">Create agreements for selected</button>
+      </div>
+      <div id="agreements_status" class="status" style="margin-top:.6rem;"></div>
+    </section>
 
-    <div id="existingAccounts" style="display: none;">
-      <h4>Use Existing Account IDs</h4>
-      <label>Enter Account IDs (comma-separated):</label>
-      <input id="existing_account_ids" type="text" placeholder="e.g., acc-1, acc-2, acc-3" />
-      <button onclick="importAccounts()">Import Accounts</button>
-      <div id="import_accounts_status"></div>
-    </div>
+    <!-- 5) Requisitions / Consent -->
+    <section class="card" id="secRequisitions">
+      <h3>5) Requisitions / Consent</h3>
+      <div class="grid-2">
+        <div>
+          <label for="redirect_base">Redirect base</label>
+          <input id="redirect_base" type="text" value="http://localhost:8787" />
+          <small class="muted">Example: http://localhost:8787</small>
+        </div>
+        <div class="row-actions" style="align-items:flex-end;">
+          <button onclick="createRequisitions()">Create requisitions</button>
+        </div>
+      </div>
+      <div id="requisitions" style="margin-top:.6rem;"></div>
+    </section>
 
-    <div id="requisitionsFlow" style="display: none;">
-      <h4>Use Requisitions</h4>
-      <button onclick="initiateRequisitionFlow()">Load and Create Requisitions</button>
-      <div id="requisitions_status"></div>
-    </div>
-  </div>
+    <!-- 6) Add Accounts -->
+    <section class="card" id="secAddAccounts">
+      <h3>6) Add Accounts</h3>
+      <p class="muted" style="margin-bottom:.5rem;">Choose one path (XOR):</p>
+      <div class="segmented" role="group" aria-label="Account add mode">
+        <label>
+          <input type="radio" name="account_option" value="existing" onclick="toggleAccountFlow()" />
+          <span>Use Existing Account IDs</span>
+        </label>
+        <label>
+          <input type="radio" name="account_option" value="requisitions" onclick="toggleAccountFlow()" />
+          <span>Use Requisitions</span>
+        </label>
+      </div>
 
-  <div class="card">
-    <h3>Google Sheets Setup</h3>
-    <p>1. <a href="https://console.developers.google.com/apis/" target="_blank">Create a new Google Cloud project</a>.</p>
-    <p>2. Enable the Google Sheets API.</p>
-    <p>3. Create OAuth credentials:</p>
-    <ul>
-      <li>API: Google Sheets API</li>
-      <li>Called from: Other UI (e.g., Windows, CLI tool)</li>
-      <li>Access: Application data</li>
-      <li>Role: Editor</li>
-    </ul>
-    <p>4. Download the credentials JSON and save it as indicated in the configuration input fields below.</p>
-    <p>5. <a href="https://docs.google.com/spreadsheets/d/1A5YeNDhnj03jKcJWAfoVrEBWd-2CjTN0HkDJ6yO0oRk/edit?usp=sharing" target="_blank">Copy this Google Sheets template</a> to your own account.</p>
+      <!-- Existing IDs -->
+      <div id="existingAccounts" style="display:none; margin-top:1rem;">
+        <h4>Use Existing Account IDs</h4>
+        <label for="existing_account_ids">Account IDs (comma-separated)</label>
+        <input id="existing_account_ids" type="text" placeholder="e.g., acc-1, acc-2, acc-3" />
+        <div class="row-actions">
+          <button onclick="importAccounts()">Import Accounts</button>
+        </div>
+        <div id="import_accounts_status" class="status" style="margin-top:.6rem;"></div>
+      </div>
 
-    <label>Spreadsheet ID</label>
-    <input id="spreadsheet_id" type="text" placeholder="Enter Spreadsheet ID from URL" />
-    <label>OAuth Credentials Path (credentials.json)</label>
-    <input id="credentials_path" type="text" value="./credentials.json" />
-    <label>Token Cache Path</label>
-    <input id="token_cache_path" type="text" value="./token.pickle" />
-    <button onclick="setupGoogleSheets()">Setup Google Sheets</button>
-    <div id="google_sheets_status"></div>
-  </div>
+      <!-- Requisition-driven accounts -->
+      <div id="requisitionsFlow" style="display:none; margin-top:1rem;">
+        <h4>Use Requisitions</h4>
+        <p class="muted">If you have just completed consent, fetch accounts from your requisitions:</p>
+        <div class="row-actions">
+          <button onclick="initiateRequisitionFlow()">Show steps</button>
+          <button class="secondary" onclick="loadAccounts()">Load accounts for requisitions</button>
+        </div>
+        <div id="requisitions_status" class="status" style="margin-top:.6rem;"></div>
+        <div id="accounts" style="margin-top:1rem;"></div>
+      </div>
+    </section>
 
-  <div class="card">
-    <h3>7) Category autofill</h3>
-    <label>Enable historic tagger?</label>
-    <select id="historic_mode">
-      <option value="off">Off</option>
-      <option value="global">On (Global history)</option>
-      <option value="same_account">On (Same account only)</option>
-    </select>
-  </div>
+    <!-- Google Sheets Setup -->
+    <section class="card" id="secSheets">
+      <h3>Google Sheets Setup</h3>
+      <ol>
+        <li><a href="https://console.developers.google.com/apis/" target="_blank">Create a new Google Cloud project</a>.</li>
+        <li>Enable the Google Sheets API.</li>
+        <li>Create OAuth credentials:
+          <ul>
+            <li>API: Google Sheets API</li>
+            <li>Called from: Other UI (e.g., Windows, CLI tool)</li>
+            <li>Access: Application data</li>
+            <li>Role: Editor</li>
+          </ul>
+        </li>
+        <li>Download the credentials JSON and save it as indicated below.</li>
+        <li><a href="https://docs.google.com/spreadsheets/d/1A5YeNDhnj03jKcJWAfoVrEBWd-2CjTN0HkDJ6yO0oRk/edit?usp=sharing" target="_blank">Copy this Google Sheets template</a> to your account.</li>
+      </ol>
 
-  <div class="card">
-    <h3>8) Preview & Write</h3>
-    <button onclick="previewConfig()">Preview</button>
-    <pre id="preview"></pre>
-    <button onclick="writeConfig()">Write to config</button>
-    <div id="write_status"></div>
-  </div>
+      <div class="grid-2" style="margin-top:.5rem;">
+        <div>
+          <label for="spreadsheet_id">Spreadsheet ID</label>
+          <input id="spreadsheet_id" type="text" placeholder="Enter Spreadsheet ID from URL" />
+        </div>
+        <div>
+          <label for="credentials_path">OAuth Credentials Path (credentials.json)</label>
+          <input id="credentials_path" type="text" value="./credentials.json" />
+        </div>
+        <div>
+          <label for="token_cache_path">Token Cache Path</label>
+          <input id="token_cache_path" type="text" value="./token.pickle" />
+        </div>
+      </div>
+      <div class="row-actions">
+        <button onclick="setupGoogleSheets()">Setup Google Sheets</button>
+      </div>
+      <div id="google_sheets_status" class="status" style="margin-top:.6rem;"></div>
+    </section>
+
+    <!-- 7) Category autofill -->
+    <section class="card" id="secHistoric">
+      <h3>7) Category autofill</h3>
+      <label for="historic_mode">Enable historic tagger?</label>
+      <select id="historic_mode">
+        <option value="off">Off</option>
+        <option value="global">On (Global history)</option>
+        <option value="same_account">On (Same account only)</option>
+      </select>
+    </section>
+
+    <!-- 8) Preview & Write -->
+    <section class="card" id="secPreview">
+      <h3>8) Preview & Write</h3>
+      <div class="row-actions">
+        <button onclick="previewConfig()">Preview</button>
+      </div>
+      <pre id="preview" class="status" style="min-height: 140px;"></pre>
+      <div class="row-actions">
+        <button class="contrast" onclick="writeConfig()">Write to config</button>
+      </div>
+      <div id="write_status" class="status" style="margin-top:.6rem;"></div>
+    </section>
+  </main>
 
   <script>
     let selectedInstitutions = new Set();
     let requisitions = [];
     let accounts = [];
 
+    function getMode() {
+      return document.querySelector('input[name="setup_mode"]:checked').value;
+    }
+
+    function updateModeUI() {
+      const mode = getMode();
+      const byId = id => document.getElementById(id);
+
+      // Always show mode and initialize step
+      byId('secMode').style.display = 'block';
+      byId('secInit').style.display = 'block';
+
+      // Defaults
+      const show = (id, on) => byId(id).style.display = on ? 'block' : 'none';
+
+      if (mode === 'full') {
+        show('secCredentials', true);
+        show('secBanks', true);
+        show('secAgreements', true);
+        show('secRequisitions', true);
+        show('secAddAccounts', true);
+        show('secHistoric', true);
+        show('secSheets', true);
+        show('secPreview', true);
+        byId('mode_hint').innerText = 'Full setup shows: Credentials, Banks, Agreements, Requisitions, Add Accounts, Category Autofill, and Google Sheets.';
+      } else if (mode === 'accounts') {
+        // Accounts only: Credentials, Add Accounts, Historic, Sheets (+ Preview)
+        show('secCredentials', true);
+        show('secBanks', false);
+        show('secAgreements', false);
+        show('secRequisitions', false);
+        show('secAddAccounts', true);
+        show('secHistoric', true);
+        show('secSheets', true);
+        show('secPreview', true);
+        byId('mode_hint').innerText = 'Accounts only: provide credentials, add accounts (existing IDs or from existing requisitions), optionally set up Google Sheets.';
+      } else {
+        // Repository only: Sheets (+ Preview)
+        show('secCredentials', false);
+        show('secBanks', false);
+        show('secAgreements', false);
+        show('secRequisitions', false);
+        show('secAddAccounts', false);
+        show('secHistoric', false);
+        show('secSheets', true);
+        show('secPreview', true);
+        byId('mode_hint').innerText = 'Repository only: set up Google Sheets and write the config.';
+      }
+    }
+
+    // Initialize mode UI on load
+    document.addEventListener('DOMContentLoaded', updateModeUI);
+
     async function initWizard(){
-      const res = await fetch('/api/init', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({config_file: document.getElementById('config_file').value, country: document.getElementById('country').value})});
+      const res = await fetch('/api/init', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          config_file: document.getElementById('config_file').value,
+          country: document.getElementById('country').value
+        })
+      });
       const j = await res.json();
-      document.getElementById('init_status').innerText = JSON.stringify(j);
+      document.getElementById('init_status').innerText = JSON.stringify(j, null, 2);
     }
 
     async function submitCreds(){
-      const res = await fetch('/api/credentials', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({secret_id: document.getElementById('secret_id').value, secret_key: document.getElementById('secret_key').value})});
+      const res = await fetch('/api/credentials', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          secret_id: document.getElementById('secret_id').value,
+          secret_key: document.getElementById('secret_key').value
+        })
+      });
       const j = await res.json();
       alert(JSON.stringify(j));
     }
@@ -155,7 +356,7 @@
     async function getToken(){
       const res = await fetch('/api/token', {method:'POST'});
       const j = await res.json();
-      document.getElementById('token_status').innerText = JSON.stringify(j);
+      document.getElementById('token_status').innerText = JSON.stringify(j, null, 2);
     }
 
     async function loadInstitutions() {
@@ -163,12 +364,11 @@
       const list = await res.json();
       const div = document.getElementById('institutions');
       div.innerHTML = '';
-      list.forEach(inst => {
-        const checkbox = document.createElement('input');
+      (list || []).forEach(inst => {
         const itemDiv = document.createElement('div');
-        const nameSpan = document.createElement('span');
-        const codeSpan = document.createElement('span');
+        itemDiv.className = 'institution-item';
 
+        const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
         checkbox.id = 'inst_' + inst.id;
         checkbox.onchange = () => {
@@ -176,13 +376,14 @@
           else selectedInstitutions.delete(inst.id);
         };
 
+        const nameSpan = document.createElement('span');
         nameSpan.className = 'institution-name';
         nameSpan.textContent = inst.name;
 
+        const codeSpan = document.createElement('span');
         codeSpan.className = 'institution-code';
         codeSpan.textContent = '(' + inst.id + ')';
 
-        itemDiv.className = 'institution-item';
         itemDiv.appendChild(checkbox);
         itemDiv.appendChild(nameSpan);
         itemDiv.appendChild(codeSpan);
@@ -192,23 +393,37 @@
 
     async function createAgreements(){
       const inst = Array.from(selectedInstitutions);
-      const res = await fetch('/api/agreements', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({institutions: inst})});
+      const res = await fetch('/api/agreements', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({institutions: inst})
+      });
       const j = await res.json();
-      document.getElementById('agreements_status').innerText = JSON.stringify(j);
+      document.getElementById('agreements_status').innerText = JSON.stringify(j, null, 2);
     }
 
     async function createRequisitions(){
       const inst = Array.from(selectedInstitutions);
-      const res = await fetch('/api/requisitions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({institutions: inst, redirect_base: document.getElementById('redirect_base').value})});
+      const res = await fetch('/api/requisitions', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          institutions: inst,
+          redirect_base: document.getElementById('redirect_base').value
+        })
+      });
       const j = await res.json();
       requisitions = j;
       const div = document.getElementById('requisitions');
       div.innerHTML = '';
-      j.forEach(r => {
+      (j || []).forEach(r => {
         const a = document.createElement('a');
-        a.href = r.link; a.innerText = 'Open consent: ' + r.institution_id; a.target = '_blank';
-        const line = document.createElement('div');
-        line.appendChild(a); div.appendChild(line);
+        a.href = r.link;
+        a.innerText = 'Open consent: ' + r.institution_id;
+        a.target = '_blank';
+        const line = document.createElement('p');
+        line.appendChild(a);
+        div.appendChild(line);
       });
     }
 
@@ -216,31 +431,66 @@
       const div = document.getElementById('accounts');
       div.innerHTML = '';
       accounts = [];
-      for(const r of requisitions){
+      for (const r of (requisitions || [])) {
         const res = await fetch('/api/requisitions/' + r.id + '/accounts');
         const j = await res.json();
-        j.accounts.forEach(acc => {
-          const id = 'acc_' + acc;
+        (j.accounts || []).forEach(acc => {
           const line = document.createElement('div');
+          line.className = 'institution-item';
+
           const cb = document.createElement('input');
-          cb.type = 'checkbox'; cb.id = id; cb.onchange = () => { if(cb.checked) accounts.push({account_id: acc, name: ''}); else accounts = accounts.filter(x => x.account_id !== acc); };
-          const inName = document.createElement('input'); inName.placeholder = 'Account name (optional)'; inName.onchange = () => { const idx = accounts.findIndex(x => x.account_id === acc); if(idx>=0) accounts[idx].name = inName.value; };
-          const label = document.createElement('label'); label.htmlFor = id; label.innerText = acc;
-          line.appendChild(cb); line.appendChild(label); line.appendChild(inName);
+          cb.type = 'checkbox';
+          cb.id = 'acc_' + acc;
+          cb.onchange = () => {
+            if (cb.checked) accounts.push({account_id: acc, name: ''});
+            else accounts = accounts.filter(x => x.account_id !== acc);
+          };
+
+          const label = document.createElement('label');
+          label.htmlFor = 'acc_' + acc;
+          label.style.margin = 0;
+          label.innerText = acc;
+
+          const inName = document.createElement('input');
+          inName.type = 'text';
+          inName.placeholder = 'Account name (optional)';
+          inName.onchange = () => {
+            const idx = accounts.findIndex(x => x.account_id === acc);
+            if (idx >= 0) accounts[idx].name = inName.value;
+          };
+
+          line.appendChild(cb);
+          line.appendChild(label);
+          line.appendChild(inName);
           div.appendChild(line);
         });
       }
     }
 
+    function initiateRequisitionFlow() {
+      const msg = [
+        'Requisition-driven flow:',
+        '1) Load institutions and select your banks (Step 3).',
+        '2) Create agreements (Step 4).',
+        '3) Create requisitions (Step 5) and complete bank consent.',
+        '4) Load accounts from requisitions (Step 6).'
+      ].join('\\n');
+      document.getElementById('requisitions_status').innerText = msg;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
     async function importAccounts() {
-      const accountIDs = document.getElementById('existing_account_ids').value.split(',').map(id => id.trim());
+      const accountIDs = document.getElementById('existing_account_ids').value
+        .split(',')
+        .map(id => id.trim())
+        .filter(Boolean);
       const res = await fetch('/api/import_accounts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ account_ids: accountIDs })
       });
       const j = await res.json();
-      document.getElementById('import_accounts_status').innerText = JSON.stringify(j);
+      document.getElementById('import_accounts_status').innerText = JSON.stringify(j, null, 2);
     }
 
     function toggleAccountFlow() {
@@ -260,21 +510,29 @@
         })
       });
       const j = await res.json();
-      document.getElementById('google_sheets_status').innerText = JSON.stringify(j);
+      document.getElementById('google_sheets_status').innerText = JSON.stringify(j, null, 2);
     }
 
     async function previewConfig(){
       const mode = document.getElementById('historic_mode').value;
-      const res = await fetch('/api/config/preview', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({selected_accounts: accounts, enable_historic: mode})});
+      const res = await fetch('/api/config/preview', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({selected_accounts: accounts, enable_historic: mode})
+      });
       const j = await res.json();
-      document.getElementById('preview').innerText = j.preview || JSON.stringify(j);
+      document.getElementById('preview').innerText = j.preview || JSON.stringify(j, null, 2);
     }
 
     async function writeConfig(){
       const preview = document.getElementById('preview').innerText;
-      const res = await fetch('/api/config/write', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({preview})});
+      const res = await fetch('/api/config/write', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({preview})
+      });
       const j = await res.json();
-      document.getElementById('write_status').innerText = JSON.stringify(j);
+      document.getElementById('write_status').innerText = JSON.stringify(j, null, 2);
     }
   </script>
 </body>
