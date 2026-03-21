@@ -2,16 +2,23 @@ import requests
 import requests_cache
 import json
 from datetime import datetime
+from datetime import date as datetime_date
 from random import randint
 from time import sleep
 from typing import List, Dict
 import pickle
+import logging
 
 from src.application.password_getter.password_getter import IPasswordGetter
 
 from src.infrastructure.bank_account_transactions_fetchers.i_transactions_fetcher import (
     ITransactionsFetcher,
 )
+from src.infrastructure.bank_account_transactions_fetchers.exceptions import (
+    NordigenAuthExpiredException,
+)
+
+log = logging.getLogger(__name__)
 
 DOWNLOAD_DATA_TEMPLATE = (
     "https://bankaccountdata.gocardless.com/api/v2/accounts/{}/transactions/"
@@ -67,6 +74,9 @@ class NordigenFetcher(ITransactionsFetcher):
             r = requests.get(self.download_data_url, headers=headers)
             trxs = json.loads(r.text)
 
+            # Check for auth expiration errors
+            self._check_auth_error(trxs)
+
             try:
                 trxs_parsed = [
                     self._parse_transaction(trx) for trx in trxs["transactions"]["booked"]
@@ -78,13 +88,13 @@ class NordigenFetcher(ITransactionsFetcher):
                     and trxs.get("status_code") == 503
                     and trxs.get("type") == "ServiceError"
                 ):
-                    print(
+                    log.warning(
                         "Institution service unavailable; skipping transactions fetch "
                         f"for account {self.account}"
                     )
                     return []
-                print(f"Error while parsing transactions from account {self.account}")
-                print(trxs)
+                log.error(f"Error while parsing transactions from account {self.account}")
+                log.error(trxs)
                 raise e
 
             date_init_query = datetime_date.min if date_init is None else date_init.date()
@@ -108,4 +118,34 @@ class NordigenFetcher(ITransactionsFetcher):
         }
         r = requests.get(self.balance_data_url, headers=headers)
         balances_txt = json.loads(r.text)
+
+        # Check for auth expiration errors
+        self._check_auth_error(balances_txt)
+
         return balances_txt
+
+    def _check_auth_error(self, response: dict) -> None:
+        """Check if API response indicates auth expiration and raise exception if so."""
+        if not isinstance(response, dict):
+            return
+
+        # Check for various auth expiration patterns from Nordigen/GoCardless API
+        summary = response.get("summary", "")
+        detail = response.get("detail", "")
+        status_code = response.get("status_code")
+
+        auth_expired_indicators = [
+            "EUA Expired" in summary,
+            "Account has been suspended" in summary,
+            status_code == 401,
+            status_code == 403 and "expired" in detail.lower(),
+            "authentication credentials were not provided" in detail.lower(),
+            "access expired" in detail.lower(),
+        ]
+
+        if any(auth_expired_indicators):
+            log.warning(f"Nordigen auth expired for account {self.account}: {response}")
+            raise NordigenAuthExpiredException(
+                account_id=self.account,
+                message=f"Auth expired: {summary or detail}"
+            )

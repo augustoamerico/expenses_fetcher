@@ -1,0 +1,58 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+.venv/
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Build
+*.egg-info/
+dist/
+build/
+
+# Local data and secrets
+*.pickle
+token.pickle
+credentials.json
+config/*.yaml
+config/*.yml
+!config/example_config.yaml
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation (keep docs in image for reference)
+# docs/
+
+# Dev files
+buffered_call.pickle
+discogs_cache.sqlite
+*.sqlite
+
+# Example/test files
+example_csv_raw/
