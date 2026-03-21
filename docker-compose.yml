@@ -8,8 +8,6 @@ services:
     environment:
       - NTFY_TOPIC=${NTFY_TOPIC}
       - NTFY_SERVER=${NTFY_SERVER:-https://ntfy.sh}
-      - NORDIGEN_SECRET_ID=${NORDIGEN_SECRET_ID}
-      - NORDIGEN_SECRET_KEY=${NORDIGEN_SECRET_KEY}
     volumes:
       - ./config:/app/config
       - ./data:/app/data
@@ -22,9 +20,6 @@ services:
     build: .
     ports:
       - "8787:8787"
-    environment:
-      - NORDIGEN_SECRET_ID=${NORDIGEN_SECRET_ID}
-      - NORDIGEN_SECRET_KEY=${NORDIGEN_SECRET_KEY}
     volumes:
       - ./config:/app/config
     command: python tools/nordigen_onboarding_web/app.py --config-file /app/config/config.yaml --port 8787
