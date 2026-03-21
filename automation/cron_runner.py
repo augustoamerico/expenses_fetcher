@@ -16,8 +16,6 @@ Usage:
 Environment variables:
     NTFY_TOPIC: ntfy.sh topic for notifications (required)
     NTFY_SERVER: ntfy server URL (optional, defaults to https://ntfy.sh)
-    NORDIGEN_SECRET_ID: Nordigen API secret ID
-    NORDIGEN_SECRET_KEY: Nordigen API secret key
 """
 
 import argparse
