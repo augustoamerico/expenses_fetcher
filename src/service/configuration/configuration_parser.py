@@ -9,6 +9,9 @@ from src.application.account_manager.myedenred_account_manager import (
 from src.application.account_manager.nordigen_account_manager import (
     NordigenAccountManager,
 )
+from src.infrastructure.bank_account_transactions_fetchers.nordigen_token_provider import (
+    NordigenTokenProvider,
+)
 from src.domain.category_taggers.historic_tagger import HistoricTagger
 from src.domain.category_taggers.i_tagger import ITagger
 from src.domain.category_taggers.regex_tagger import RegexTaggerBuilder
@@ -138,7 +141,12 @@ def get_general_account_info(account, account_name, repositories) -> GeneralAcco
 
 
 def parse_account(
-    account, account_name, repositories, tmp_directory, password_getter
+    account,
+    account_name,
+    repositories,
+    tmp_directory,
+    password_getter,
+    nordigen_token_provider: NordigenTokenProvider = None,
 ) -> IAccountManager:
     account_type = account["type"].lower().strip()
     if account_type == "activebank-debit" or account_type == "activebank-precard":
@@ -197,7 +205,11 @@ def parse_account(
             account["secret_key"],
             account["account"],
             parse_remove_transaction_description_prefix(account),
-            parse_taggers(account["category_taggers"], next(iter(repositories))),
+            parse_taggers(account.get("category_taggers", {}), next(iter(repositories))),
+            token_provider=nordigen_token_provider,
+            cache_dir=account.get("cache_dir", ".cache/nordigen"),
+            cache_policy=account.get("cache_policy", "network_only"),
+            cache_ttl_hours=account.get("cache_ttl_hours", 3),
         )
     elif account_type == "xlsx-manual":
         XlsxManualAccountManager = importlib.import_module(

@@ -37,6 +37,9 @@ from src.infrastructure.bank_account_transactions_fetchers.exceptions import (
 )
 from src.application.expenses_fetcher.expenses_fetcher import ExpensesFetcher
 from src.service.configuration import configuration_parser as cfg_parser
+from src.infrastructure.bank_account_transactions_fetchers.nordigen_token_provider import (
+    NordigenTokenProvider,
+)
 from src.repository.google_sheet_repository import GoogleSheetRepository
 
 
@@ -135,6 +138,7 @@ def build_expense_fetcher(config: Dict[str, Any]) -> ExpensesFetcher:
     # Build accounts
     accounts = {}
     if "accounts" in config:
+        nordigen_token_provider = NordigenTokenProvider()
         for account_name, account_config in config["accounts"].items():
             try:
                 account = cfg_parser.parse_account(
@@ -143,6 +147,7 @@ def build_expense_fetcher(config: Dict[str, Any]) -> ExpensesFetcher:
                     repositories.values(),
                     tmp_dir,
                     None,  # No password getter needed for Nordigen
+                    nordigen_token_provider=nordigen_token_provider,
                 )
                 accounts[account_name] = account
             except Exception as e:
@@ -243,7 +248,7 @@ def run_automation(config_path: str, notifier: NtfyNotifier) -> bool:
         for account_name in list(expense_fetcher.accounts.keys()):
             log.info(f"Processing account: {account_name}")
             try:
-                expense_fetcher.pull_transactions(account_name=account_name)
+                expense_fetcher.pull_transactions(account_name=account_name, apply_categories=True)
                 results["success"].append(account_name)
                 log.info(f"Successfully pulled from {account_name}")
             except NordigenAuthExpiredException as e:

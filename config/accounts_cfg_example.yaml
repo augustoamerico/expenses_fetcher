@@ -15,6 +15,26 @@ accounts:
                     - "LEV\\s*ATM\\s*\\d{4}(\\s|\\d|\\w|\\W)*"
             historic_from:
                     - "Main"
+    Secondary:
+        type: nordigen-account
+        secret_id: b0b87d52-43cb-ab0d-63a3-9f53kg016adb
+        secret_key: ...
+        account: ...
+        cache_policy: use_if_fresh
+        cache_ttl_hours: 3
+        cache_dir: .cache/nordigen
+        category_taggers:
+            # regex:
+            #     Salary:
+            #         - "(\\s|\\d|\\w|\\W)*VENCIMENTO(\\s|\\d|\\w|\\W)*"
+            #     Rent:
+            #         - "TRF\\s\"*P\\/\\s*\\w*CASA"
+            #     Tolls:
+            #         - "PAG\\sBXVAL\\s*-\\s\\d{4}\\sVIAVERDE"
+            #     Withdraw:
+            #         - "LEV\\s*ATM\\s*\\d{4}(\\s|\\d|\\w|\\W)*"
+            historic_from:
+                    - "Main"
     Precard:
         type: activebank-precard
         username: USERNAME
@@ -36,6 +56,9 @@ accounts:
         type: nordigen-account
         token: XXXXXXXXXXXXXXXXXXXXX
         account: XXXXXXXXXXXXXXXXXXXXXXXXXXX
+        cache_policy: use_if_fresh
+        cache_ttl_hours: 3
+        cache_dir: .cache/nordigen
         category_taggers:
             historic_from:
                     - "Main"

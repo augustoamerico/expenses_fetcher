@@ -298,7 +298,8 @@ Dates
 Google Sheets repository
 
 - First-class UI: This is the primary place where you review, categorize (via dropdowns), optionally split rows, and run a button/script to promote data from "Expenses Staging" to "Expenses". Build your pivots and dashboards here.
-- OAuth: First run will open a local browser window to authorize. A token cache (token_cache_path) is stored for reuse.
+- OAuth: First run must be completed in an interactive session. A token cache (`token_cache_path`) is stored for reuse.
+- Headless automation: Docker/cron runs are expected to reuse an existing token cache. If `token_cache_path` is missing or invalid, the process cannot complete OAuth non-interactively.
 - Expected structure (you can name the sheet tabs as you prefer):
   - expenses_sheet_name + expenses_start_cell (where data goes)
   - expenses_staging_name (staging sheet for new rows)

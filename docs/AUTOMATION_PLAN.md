@@ -276,10 +276,11 @@ def setup_logging(log_dir: str = "/app/logs"):
 The existing `GoogleSheetRepository` uses OAuth with automatic token refresh. For automation:
 
 **How it works:**
-- First run requires interactive OAuth (browser opens for authorization)
+- First run requires interactive OAuth
 - Token saved to `token.pickle` (contains access + refresh token)
 - Subsequent runs auto-refresh the token - no interaction needed
 - Google refresh tokens don't expire unless revoked
+- A headless cron container cannot bootstrap a missing token by itself; it must receive a valid `token.pickle`
 
 **Setup (one-time, before deploying to Zimaboard):**
 1. Run the tool locally/interactively once:

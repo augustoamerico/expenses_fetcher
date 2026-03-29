@@ -8,11 +8,15 @@ services:
     environment:
       - NTFY_TOPIC=${NTFY_TOPIC}
       - NTFY_SERVER=${NTFY_SERVER:-https://ntfy.sh}
+      - INFRA_CACHE_DIR=/app/.cache/nordigen
     volumes:
-      - ./config:/app/config
+      - ./config:/app/config:ro
       - ./data:/app/data
       - ./logs:/app/logs
-    command: python automation/cron_runner.py --config-file /app/config/config.yaml --log-dir /app/logs
+      - ./credentials.json:/app/credentials.json
+      - ./token.pickle:/app/token.pickle
+      - ./.cache/:/app/.cache
+    command: python automation/cron_runner.py --config-file /app/config/accounts_cfg.yaml --log-dir /app/logs
 
   # Nordigen onboarding wizard - always running for re-auth when needed
   # Access at http://zimaboard-ip:8787
@@ -21,7 +25,7 @@ services:
     ports:
       - "8787:8787"
     volumes:
-      - ./config:/app/config
+      - ./config:/app/config:ro
     command: python tools/nordigen_onboarding_web/app.py --config-file /app/config/config.yaml --port 8787
     restart: unless-stopped
     healthcheck:

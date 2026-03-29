@@ -35,9 +35,25 @@ class WizardState:
 state = WizardState()
 
 
+def load_config():
+    if not state.config_file:
+        raise ValueError("Wizard not initialized with config_file")
+    with open(state.config_file, "r") as f:
+        return yaml.safe_load(f) or {}
+
+
 @app.route("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
+
+
+@app.route("/api/state", methods=["GET"])
+def api_state():
+    """Expose initial server-side state for prefilling inputs in the UI."""
+    return jsonify({
+        "config_file": state.config_file,
+        "country": state.country,
+    })
 
 
 @app.route("/api/init", methods=["POST"])
@@ -48,6 +64,28 @@ def api_init():
     if not state.config_file:
         return jsonify({"error": "config_file required"}), 400
     return jsonify({"ok": True})
+
+
+@app.route("/api/config/nordigen_accounts", methods=["GET"])
+def api_config_nordigen_accounts():
+    if not state.config_file:
+        return jsonify({"error": "Wizard not initialized with config_file"}), 400
+
+    config = load_config()
+    accounts = config.get("accounts", {}) or {}
+    nordigen_accounts = []
+
+    for name, account in accounts.items():
+        if account.get("type") != "nordigen-account":
+            continue
+        nordigen_accounts.append(
+            {
+                "name": name,
+                "account": account.get("account"),
+            }
+        )
+
+    return jsonify(nordigen_accounts)
 
 
 @app.route("/api/credentials", methods=["POST"])
@@ -209,14 +247,13 @@ def api_requisition_accounts(req_id):
 def api_config_preview():
     body = request.json or {}
     selected = body.get("selected_accounts", [])  # list of dicts: {account_id, name}
+    refresh_accounts = body.get("refresh_accounts", [])  # list of dicts: {config_name, account_id}
     enable_historic = body.get("enable_historic", "off")  # off|global|same_account
 
     if not state.config_file:
         return jsonify({"error": "Wizard not initialized with config_file"}), 400
 
-    with open(state.config_file, "r") as f:
-        config = yaml.safe_load(f) or {}
-
+    config = load_config()
     accounts = config.get("accounts", {}) or {}
     account_names = [entry.get("name") or f"Nordigen Account {entry.get('account_id')[:8]}" for entry in selected]
 
@@ -238,6 +275,17 @@ def api_config_preview():
             "remove_transaction_description_prefix": False,
             "category_taggers": taggers,
         }
+
+    for entry in refresh_accounts:
+        config_name = entry.get("config_name")
+        account_id = entry.get("account_id")
+        if not config_name or not account_id:
+            continue
+        if config_name not in accounts:
+            return jsonify({"error": f"Config account not found: {config_name}"}), 400
+        if (accounts[config_name] or {}).get("type") != "nordigen-account":
+            return jsonify({"error": f"Config account is not nordigen-account: {config_name}"}), 400
+        accounts[config_name]["account"] = account_id
 
     config["accounts"] = accounts
 
@@ -270,9 +318,7 @@ def setup_google_sheets():
     if not state.config_file:
         return jsonify({"error": "Wizard not initialized with config_file"}), 400
 
-    with open(state.config_file, "r") as f:
-        config = yaml.safe_load(f) or {}
-
+    config = load_config()
     repositories = config.get("repositories", {})
     repositories["googlesheet"] = {
         "scopes": ["https://www.googleapis.com/auth/spreadsheets"],
@@ -303,9 +349,7 @@ def import_accounts():
     if not state.config_file:
         return jsonify({"error": "Wizard not initialized with config_file"}), 400
 
-    with open(state.config_file, "r") as f:
-        config = yaml.safe_load(f) or {}
-
+    config = load_config()
     accounts = config.get("accounts", {}) or {}
 
     for acc_id in account_ids:
@@ -337,7 +381,7 @@ def main():
     state.config_file = args.config_file
     state.country = args.country
 
-    app.run(host="127.0.0.1", port=args.port, debug=False)
+    app.run(host="0.0.0.0", port=args.port, debug=False)
 
 
 if __name__ == "__main__":

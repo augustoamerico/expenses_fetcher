@@ -1,5 +1,8 @@
+import logging
 import os.path
 import pickle
+import sys
+import webbrowser
 from typing import Dict, List
 from datetime import datetime
 
@@ -8,6 +11,9 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
 from src.repository.i_repository import IRepository
+
+
+log = logging.getLogger(__name__)
 
 
 class GoogleSheetRepository(IRepository):
@@ -56,11 +62,34 @@ class GoogleSheetRepository(IRepository):
                 flow = InstalledAppFlow.from_client_secrets_file(
                     credentials_path, self.scopes
                 )
-                creds = flow.run_local_server(port=0)
+                creds = self._run_installed_app_flow(
+                    flow=flow,
+                    token_cache_path=token_cache_path,
+                    credentials_path=credentials_path,
+                )
             # Save the credentials for the next run
             with open(token_cache_path, "wb") as token:
                 pickle.dump(creds, token)
         return creds
+
+    def _run_installed_app_flow(
+        self, flow: InstalledAppFlow, token_cache_path: str, credentials_path: str
+    ):
+        is_interactive = sys.stdin.isatty() and sys.stdout.isatty()
+        if not is_interactive:
+            raise RuntimeError(
+                "Google Sheets OAuth requires an existing token cache in non-interactive "
+                "environments. Generate the token once in an interactive session and "
+                f"mount it at '{token_cache_path}'. Credentials file: '{credentials_path}'."
+            )
+
+        try:
+            return flow.run_local_server(port=0)
+        except webbrowser.Error:
+            log.warning(
+                "No runnable browser found. Falling back to manual OAuth URL output."
+            )
+            return flow.run_local_server(port=0, open_browser=False)
 
     def get_transactions(self):
         transactions = self.get_data(
