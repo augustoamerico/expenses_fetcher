@@ -84,6 +84,10 @@
           <span>Accounts only (existing consents)</span>
         </label>
         <label>
+          <input type="radio" name="setup_mode" value="refresh_eua" onclick="updateModeUI()" />
+          <span>Refresh EUA only</span>
+        </label>
+        <label>
           <input type="radio" name="setup_mode" value="repository" onclick="updateModeUI()" />
           <span>Repository only (Google Sheets)</span>
         </label>
@@ -206,6 +210,18 @@
       </div>
     </section>
 
+    <!-- 6b) Refresh Existing Nordigen Accounts -->
+    <section class="card" id="secRefreshEua">
+      <h3>6) Refresh EUA</h3>
+      <p class="muted">Select existing `nordigen-account` entries from your config, then map each one to a newly consented account ID.</p>
+      <div class="row-actions">
+        <button onclick="loadConfiguredNordigenAccounts()">Load configured Nordigen accounts</button>
+        <button class="secondary" onclick="loadAccounts()">Load accounts for requisitions</button>
+      </div>
+      <div id="refresh_eua_status" class="status" style="margin-top:.6rem;"></div>
+      <div id="configured_nordigen_accounts" style="margin-top:1rem;"></div>
+    </section>
+
     <!-- Google Sheets Setup -->
     <section class="card" id="secSheets">
       <h3>Google Sheets Setup</h3>
@@ -273,6 +289,9 @@
     let selectedInstitutions = new Set();
     let requisitions = [];
     let accounts = [];
+    let loadedRequisitionAccountIds = [];
+    let configuredNordigenAccounts = [];
+    let refreshAssignments = {};
 
     function getMode() {
       return document.querySelector('input[name="setup_mode"]:checked').value;
@@ -295,6 +314,7 @@
         show('secAgreements', true);
         show('secRequisitions', true);
         show('secAddAccounts', true);
+        show('secRefreshEua', false);
         show('secHistoric', true);
         show('secSheets', true);
         show('secPreview', true);
@@ -306,10 +326,22 @@
         show('secAgreements', false);
         show('secRequisitions', false);
         show('secAddAccounts', true);
+        show('secRefreshEua', false);
         show('secHistoric', true);
         show('secSheets', true);
         show('secPreview', true);
         byId('mode_hint').innerText = 'Accounts only: provide credentials, add accounts (existing IDs or from existing requisitions), optionally set up Google Sheets.';
+      } else if (mode === 'refresh_eua') {
+        show('secCredentials', true);
+        show('secBanks', true);
+        show('secAgreements', true);
+        show('secRequisitions', true);
+        show('secAddAccounts', false);
+        show('secRefreshEua', true);
+        show('secHistoric', false);
+        show('secSheets', false);
+        show('secPreview', true);
+        byId('mode_hint').innerText = 'Refresh EUA only: select existing Nordigen accounts from config, renew consent, and write the new account UUIDs back into those same entries.';
       } else {
         // Repository only: Sheets (+ Preview)
         show('secCredentials', false);
@@ -317,6 +349,7 @@
         show('secAgreements', false);
         show('secRequisitions', false);
         show('secAddAccounts', false);
+        show('secRefreshEua', false);
         show('secHistoric', false);
         show('secSheets', true);
         show('secPreview', true);
@@ -338,6 +371,9 @@
       });
       const j = await res.json();
       document.getElementById('init_status').innerText = JSON.stringify(j, null, 2);
+      if (res.ok && getMode() === 'refresh_eua') {
+        await loadConfiguredNordigenAccounts();
+      }
     }
 
     async function submitCreds(){
@@ -414,6 +450,7 @@
       });
       const j = await res.json();
       requisitions = j;
+      loadedRequisitionAccountIds = [];
       const div = document.getElementById('requisitions');
       div.innerHTML = '';
       (j || []).forEach(r => {
@@ -431,10 +468,12 @@
       const div = document.getElementById('accounts');
       div.innerHTML = '';
       accounts = [];
+      loadedRequisitionAccountIds = [];
       for (const r of (requisitions || [])) {
         const res = await fetch('/api/requisitions/' + r.id + '/accounts');
         const j = await res.json();
         (j.accounts || []).forEach(acc => {
+          loadedRequisitionAccountIds.push(acc);
           const line = document.createElement('div');
           line.className = 'institution-item';
 
@@ -465,6 +504,85 @@
           div.appendChild(line);
         });
       }
+      renderConfiguredNordigenAccounts();
+      document.getElementById('refresh_eua_status').innerText = loadedRequisitionAccountIds.length
+        ? 'Loaded consented account IDs:\\n' + loadedRequisitionAccountIds.join('\\n')
+        : 'No account IDs were returned for the current requisitions.';
+    }
+
+    async function loadConfiguredNordigenAccounts() {
+      const res = await fetch('/api/config/nordigen_accounts');
+      const j = await res.json();
+      configuredNordigenAccounts = Array.isArray(j) ? j : [];
+      refreshAssignments = {};
+      renderConfiguredNordigenAccounts();
+      document.getElementById('refresh_eua_status').innerText = Array.isArray(j)
+        ? `Loaded ${j.length} Nordigen account(s) from config.`
+        : JSON.stringify(j, null, 2);
+    }
+
+    function getAvailableRefreshAccountIds() {
+      const ids = [];
+      loadedRequisitionAccountIds.forEach(acc => ids.push(acc));
+      accounts.forEach(acc => {
+        if (acc && acc.account_id) ids.push(acc.account_id);
+      });
+      return Array.from(new Set(ids));
+    }
+
+    function renderConfiguredNordigenAccounts() {
+      const container = document.getElementById('configured_nordigen_accounts');
+      if (!container) return;
+
+      container.innerHTML = '';
+      if (!configuredNordigenAccounts.length) {
+        container.innerHTML = '<p class="muted">No configured Nordigen accounts loaded yet.</p>';
+        return;
+      }
+
+      const availableIds = getAvailableRefreshAccountIds();
+
+      configuredNordigenAccounts.forEach(acc => {
+        const card = document.createElement('div');
+        card.className = 'institution-item';
+        card.style.display = 'block';
+
+        const title = document.createElement('div');
+        title.className = 'institution-name';
+        title.textContent = acc.name;
+
+        const current = document.createElement('div');
+        current.className = 'institution-code';
+        current.textContent = 'Current account ID: ' + (acc.account || 'missing');
+
+        const selectorLabel = document.createElement('label');
+        selectorLabel.textContent = 'Replacement account ID';
+
+        const selector = document.createElement('select');
+        const emptyOption = document.createElement('option');
+        emptyOption.value = '';
+        emptyOption.textContent = availableIds.length ? 'Select a newly consented account ID' : 'Load requisition accounts first';
+        selector.appendChild(emptyOption);
+
+        availableIds.forEach(accountId => {
+          const option = document.createElement('option');
+          option.value = accountId;
+          option.textContent = accountId;
+          if (refreshAssignments[acc.name] === accountId) option.selected = true;
+          selector.appendChild(option);
+        });
+
+        selector.onchange = () => {
+          if (selector.value) refreshAssignments[acc.name] = selector.value;
+          else delete refreshAssignments[acc.name];
+        };
+
+        card.appendChild(title);
+        card.appendChild(current);
+        card.appendChild(selectorLabel);
+        card.appendChild(selector);
+        container.appendChild(card);
+      });
     }
 
     function initiateRequisitionFlow() {
@@ -515,10 +633,18 @@
 
     async function previewConfig(){
       const mode = document.getElementById('historic_mode').value;
+      const refreshAccounts = Object.entries(refreshAssignments).map(([config_name, account_id]) => ({
+        config_name,
+        account_id
+      }));
       const res = await fetch('/api/config/preview', {
         method:'POST',
         headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({selected_accounts: accounts, enable_historic: mode})
+        body:JSON.stringify({
+          selected_accounts: accounts,
+          refresh_accounts: refreshAccounts,
+          enable_historic: mode
+        })
       });
       const j = await res.json();
       document.getElementById('preview').innerText = j.preview || JSON.stringify(j, null, 2);

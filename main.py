@@ -9,6 +9,9 @@ from datetime import datetime
 from src.application.expenses_fetcher.expenses_fetcher import ExpensesFetcher
 from src.service.configuration import configuration_parser as cfg_parser
 from src.service.password_getter_tty import TTYPasswordGetter
+from src.infrastructure.bank_account_transactions_fetchers.nordigen_token_provider import (
+    NordigenTokenProvider,
+)
 
 import logging
 
@@ -55,6 +58,7 @@ def build_expense_fetcher(config, password_getter_repo=None, password_getter=Non
     accounts = dict()
     if "accounts" in config:
         accounts_cfg = config["accounts"]
+        nordigen_token_provider = NordigenTokenProvider()
         accounts = dict(
             [
                 (
@@ -65,6 +69,7 @@ def build_expense_fetcher(config, password_getter_repo=None, password_getter=Non
                         repositories.values(),
                         tmp_dir,
                         password_getter,
+                        nordigen_token_provider=nordigen_token_provider,
                     ),
                 )
                 for account_name in accounts_cfg

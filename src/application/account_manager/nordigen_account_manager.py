@@ -12,6 +12,9 @@ from src.infrastructure.bank_account_transactions_fetchers.i_transactions_fetche
 from src.infrastructure.bank_account_transactions_fetchers.nordigen_fetcher import (
     NordigenFetcher,
 )
+from src.infrastructure.bank_account_transactions_fetchers.nordigen_token_provider import (
+    NordigenTokenProvider,
+)
 from src.domain.balance import Balance
 
 
@@ -26,9 +29,19 @@ class NordigenAccountManager(IAccountManager):
         account_names: List[
             str
         ] = None,  # this is needed to compare categories agains account names, to identify transfers
+        token_provider: NordigenTokenProvider = None,
+        cache_dir: str = None,
+        cache_policy: str = "network_only",
+        cache_ttl_hours: int = 3,
     ):
         self.transactions_fetcher: ITransactionsFetcher = NordigenFetcher(
-            secret_id, secret_key, account_id
+            secret_id,
+            secret_key,
+            account_id,
+            token_provider=token_provider,
+            cache_dir=cache_dir,
+            cache_policy=cache_policy,
+            cache_ttl_hours=cache_ttl_hours,
         )
         if self.transactions_fetcher is None:
             raise AccountNotFoundException(
@@ -51,13 +64,17 @@ class NordigenAccountManager(IAccountManager):
         for raw_transaction in self.transactions_fetcher.getTransactions(
             date_start, date_end
         ):
+            transaction_name = ""
+            if "remittanceInformationUnstructured" in raw_transaction:
+                transaction_name = raw_transaction.get("remittanceInformationUnstructured")
+            else:
+                # This case was added for the revolut source.
+                transaction_name = raw_transaction.get("remittanceInformationUnstructuredArray")[0]
             transactions.append(
                 NordigenTransaction(
                     booked_date=raw_transaction["bookingDate"],
                     value_date=raw_transaction["valueDate"],
-                    transaction_name=raw_transaction[
-                        "remittanceInformationUnstructured"
-                    ],
+                    transaction_name=transaction_name,
                     amount=raw_transaction["transactionAmount"],
                 )
             )
@@ -80,8 +97,17 @@ class NordigenAccountManager(IAccountManager):
                     )
                 elif balance_type["balanceType"] == "interimAvailable":
                     args["balance"] = float(balance_type["balanceAmount"]["amount"])
+                    if balance_type.get("referenceDate"):
+                        args["balance_date"] = datetime.datetime.strptime(
+                                balance_type["referenceDate"], "%Y-%m-%d"
+                        )
                     args["account"] = None
 
             args["updated_date_time"] = datetime.datetime.now()
-            return Balance(**args)
+            try:
+                return Balance(**args)
+            except Exception as e:
+                print(f"Error while getting balances for account {self.account_id}")
+                print(raw_balance)
+                raise e
         return None

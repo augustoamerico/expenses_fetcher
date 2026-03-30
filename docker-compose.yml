@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  # Main cron job runner - triggered externally via cron or CasaOS scheduler
+  # Usage: docker-compose run --rm expenses-fetcher-cron
+  expenses-fetcher-cron:
+    build: .
+    environment:
+      - NTFY_TOPIC=${NTFY_TOPIC}
+      - NTFY_SERVER=${NTFY_SERVER:-https://ntfy.sh}
+      - INFRA_CACHE_DIR=/app/.cache/nordigen
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./credentials.json:/app/credentials.json
+      - ./token.pickle:/app/token.pickle
+      - ./.cache/:/app/.cache
+    command: python automation/cron_runner.py --config-file /app/config/accounts_cfg.yaml --log-dir /app/logs
+
+  # Nordigen onboarding wizard - always running for re-auth when needed
+  # Access at http://zimaboard-ip:8787
+  nordigen-onboarding:
+    build: .
+    ports:
+      - "8787:8787"
+    volumes:
+      - ./config:/app/config:ro
+    command: python tools/nordigen_onboarding_web/app.py --config-file /app/config/config.yaml --port 8787
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8787/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
