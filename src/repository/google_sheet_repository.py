@@ -165,15 +165,57 @@ class GoogleSheetRepository(IRepository):
             # data = [map(lambda description_tuple, category_tuple: (description_tuple[1], category_tuple[1]), filter(lambda x: x[0] in columns_indexes, enumerate(row))) for row in values]
         return data
 
+    def _is_duplicate(self, new_trx: List, existing_trx: List) -> bool:
+        """
+        Check if two transactions are duplicates.
+
+        Matches on: capture_date, auth_date, account, amount
+        Plus: one description contains the other (min 5 chars for containment)
+
+        Schema: [capture_date, auth_date, description, category, account, balance, currency, amount]
+        Indexes:     0            1           2          3         4        5        6        7
+        """
+        # Need at least 5 elements (up to account) and 8 for amount
+        if len(new_trx) < 5 or len(existing_trx) < 5:
+            return False
+
+        # Compare core fields: capture_date[0], auth_date[1], account[4]
+        if (new_trx[0] != existing_trx[0] or
+            new_trx[1] != existing_trx[1] or
+            new_trx[4] != existing_trx[4]):
+            return False
+
+        # Compare amount[7] if available
+        if len(new_trx) >= 8 and len(existing_trx) >= 8:
+            if new_trx[7] != existing_trx[7]:
+                return False
+
+        # Description containment check (index 2)
+        new_desc = str(new_trx[2]) if len(new_trx) > 2 else ""
+        existing_desc = str(existing_trx[2]) if len(existing_trx) > 2 else ""
+
+        # Exact match always counts as duplicate
+        if new_desc == existing_desc:
+            return True
+
+        # Containment check (min 5 chars to avoid false positives)
+        if len(new_desc) >= 5 and new_desc in existing_desc:
+            return True
+        if len(existing_desc) >= 5 and existing_desc in new_desc:
+            return True
+
+        return False
+
     def remove_duplicates(self, data: List[List[str]]) -> List[List[str]]:
-        stored_data = {str(el) for el in self.get_transactions()}
+        stored_data = self.get_transactions()
         data_normalized = [self._parse_pulled_transaction(trx) for trx in data]
 
         new_transactions = []
 
         if stored_data is not None and len(stored_data) > 0:
             for trx in data_normalized:
-                if str(trx) not in stored_data:
+                is_dup = any(self._is_duplicate(trx, existing) for existing in stored_data)
+                if not is_dup:
                     new_transactions.append(trx)
 
             return new_transactions
