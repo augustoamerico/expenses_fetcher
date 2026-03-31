@@ -19,13 +19,16 @@ Environment variables:
 """
 
 import argparse
+import json
 import logging
 import os
 import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from typing import Dict, List, Any
+from random import randint
+from typing import Dict, List, Any, Optional
 
+import requests
 import yaml
 
 # Add project root to path for imports
@@ -44,6 +47,119 @@ from src.repository.google_sheet_repository import GoogleSheetRepository
 
 
 log = logging.getLogger(__name__)
+
+NORDIGEN_BASE_URL = "https://bankaccountdata.gocardless.com/api/v2"
+
+
+def get_reauth_link(secret_id: str, secret_key: str, account_id: str) -> Optional[str]:
+    """
+    Generate a bank re-authorization link for an expired Nordigen account.
+
+    This creates a new agreement and requisition, returning the bank's OAuth URL.
+    The redirect is set to google.com since we don't need the callback -
+    the account ID typically stays the same after re-auth.
+
+    Args:
+        secret_id: Nordigen API secret ID
+        secret_key: Nordigen API secret key
+        account_id: The Nordigen account UUID
+
+    Returns:
+        The bank OAuth URL, or None if generation failed
+    """
+    try:
+        # Step 1: Get access token
+        token_response = requests.post(
+            f"{NORDIGEN_BASE_URL}/token/new/",
+            headers={"Content-Type": "application/json", "accept": "application/json"},
+            data=json.dumps({"secret_id": secret_id, "secret_key": secret_key}),
+            timeout=30,
+        )
+        if token_response.status_code != 200:
+            log.error(f"Failed to get Nordigen token: {token_response.text}")
+            return None
+
+        access_token = token_response.json().get("access")
+        if not access_token:
+            log.error("No access token in Nordigen response")
+            return None
+
+        auth_headers = {
+            "accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}",
+        }
+
+        # Step 2: Get institution_id from account details
+        account_response = requests.get(
+            f"{NORDIGEN_BASE_URL}/accounts/{account_id}/",
+            headers=auth_headers,
+            timeout=30,
+        )
+        if account_response.status_code != 200:
+            log.error(f"Failed to get account details: {account_response.text}")
+            return None
+
+        institution_id = account_response.json().get("institution_id")
+        if not institution_id:
+            log.error("No institution_id in account details")
+            return None
+
+        log.info(f"Found institution_id: {institution_id} for account {account_id}")
+
+        # Step 3: Create end-user agreement
+        agreement_response = requests.post(
+            f"{NORDIGEN_BASE_URL}/agreements/enduser/",
+            headers=auth_headers,
+            data=json.dumps({
+                "institution_id": institution_id,
+                "max_historical_days": "90",
+                "access_valid_for_days": "90",
+                "access_scope": ["balances", "details", "transactions"],
+            }),
+            timeout=30,
+        )
+        if agreement_response.status_code not in (200, 201):
+            log.error(f"Failed to create agreement: {agreement_response.text}")
+            return None
+
+        agreement_id = agreement_response.json().get("id")
+        if not agreement_id:
+            log.error("No agreement ID in response")
+            return None
+
+        # Step 4: Create requisition with redirect to google.com
+        reference = f"reauth-{randint(10000000, 99999999)}"
+        requisition_response = requests.post(
+            f"{NORDIGEN_BASE_URL}/requisitions/",
+            headers=auth_headers,
+            data=json.dumps({
+                "redirect": "https://www.google.com",
+                "institution_id": institution_id,
+                "reference": reference,
+                "agreement": agreement_id,
+                "user_language": "EN",
+            }),
+            timeout=30,
+        )
+        if requisition_response.status_code not in (200, 201):
+            log.error(f"Failed to create requisition: {requisition_response.text}")
+            return None
+
+        link = requisition_response.json().get("link")
+        if not link:
+            log.error("No link in requisition response")
+            return None
+
+        log.info(f"Generated re-auth link for account {account_id}")
+        return link
+
+    except requests.RequestException as e:
+        log.error(f"Request error generating re-auth link: {e}")
+        return None
+    except Exception as e:
+        log.error(f"Unexpected error generating re-auth link: {e}")
+        return None
 
 
 def setup_logging(log_dir: str = "/app/logs") -> None:
@@ -168,7 +284,7 @@ def build_expense_fetcher(config: Dict[str, Any]) -> ExpensesFetcher:
 
 def send_summary_notification(
     notifier: NtfyNotifier,
-    results: Dict[str, List[str]],
+    results: Dict[str, List],
     transaction_count: int,
 ) -> None:
     """
@@ -177,12 +293,55 @@ def send_summary_notification(
     Args:
         notifier: NtfyNotifier instance
         results: Dict with "success", "auth_expired", and "errors" lists
+                 auth_expired contains (account_name, account_config) tuples
         transaction_count: Number of transactions staged
     """
     success_count = len(results["success"])
     auth_count = len(results["auth_expired"])
     error_count = len(results["errors"])
 
+    # Send individual re-auth notifications with bank links
+    for account_name, account_config in results["auth_expired"]:
+        secret_id = account_config.get("secret_id")
+        secret_key = account_config.get("secret_key")
+        account_id = account_config.get("account")
+
+        # Resolve environment variables if needed (e.g., ${NORDIGEN_SECRET_ID})
+        if secret_id and secret_id.startswith("${") and secret_id.endswith("}"):
+            env_var = secret_id[2:-1]
+            secret_id = os.environ.get(env_var)
+        if secret_key and secret_key.startswith("${") and secret_key.endswith("}"):
+            env_var = secret_key[2:-1]
+            secret_key = os.environ.get(env_var)
+
+        if secret_id and secret_key and account_id:
+            log.info(f"Generating re-auth link for {account_name}")
+            reauth_link = get_reauth_link(secret_id, secret_key, account_id)
+
+            if reauth_link:
+                notifier.send(
+                    title=f"Re-auth needed: {account_name}",
+                    message=f"Tap to authorize:\n{reauth_link}",
+                    priority="high",
+                    tags=["warning", "link"],
+                )
+            else:
+                notifier.send(
+                    title=f"Re-auth needed: {account_name}",
+                    message="Could not generate re-auth link. Check logs.",
+                    priority="high",
+                    tags=["warning"],
+                )
+        else:
+            log.warning(f"Missing credentials for {account_name}, cannot generate re-auth link")
+            notifier.send(
+                title=f"Re-auth needed: {account_name}",
+                message="Missing credentials in config. Manual re-auth required.",
+                priority="high",
+                tags=["warning"],
+            )
+
+    # Send summary notification
     if auth_count > 0 or error_count > 0:
         # Partial success or failures
         title = "Sync partial" if success_count > 0 else "Sync FAILED"
@@ -191,7 +350,8 @@ def send_summary_notification(
 
         lines = [f"{success_count} accounts OK, {transaction_count} transactions"]
         if auth_count:
-            lines.append(f"{auth_count} need re-auth: {', '.join(results['auth_expired'])}")
+            auth_names = [name for name, _ in results["auth_expired"]]
+            lines.append(f"{auth_count} need re-auth: {', '.join(auth_names)}")
         if error_count:
             error_names = [e[0] for e in results["errors"]]
             lines.append(f"{error_count} errors: {', '.join(error_names)}")
@@ -222,7 +382,7 @@ def run_automation(config_path: str, notifier: NtfyNotifier) -> bool:
 
     results = {
         "success": [],
-        "auth_expired": [],
+        "auth_expired": [],  # List of (account_name, account_config) tuples
         "errors": [],
     }
 
@@ -241,6 +401,9 @@ def run_automation(config_path: str, notifier: NtfyNotifier) -> bool:
             )
             return True
 
+        # Keep reference to account configs for re-auth link generation
+        account_configs = config.get("accounts", {})
+
         # Build fetcher
         expense_fetcher = build_expense_fetcher(config)
 
@@ -253,7 +416,8 @@ def run_automation(config_path: str, notifier: NtfyNotifier) -> bool:
                 log.info(f"Successfully pulled from {account_name}")
             except NordigenAuthExpiredException as e:
                 log.warning(f"Auth expired for {account_name}: {e}")
-                results["auth_expired"].append(account_name)
+                # Store account config for re-auth link generation
+                results["auth_expired"].append((account_name, account_configs.get(account_name, {})))
             except Exception as e:
                 log.error(f"Error pulling from {account_name}: {e}", exc_info=True)
                 results["errors"].append((account_name, str(e)))

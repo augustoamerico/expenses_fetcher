@@ -5,6 +5,7 @@ import argparse
 import os
 import sys
 import json
+import logging
 import tempfile
 from datetime import datetime
 from urllib.parse import urlencode
@@ -12,6 +13,9 @@ from urllib.parse import urlencode
 import requests
 import yaml
 from flask import Flask, request, jsonify, send_from_directory, redirect
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s [%(levelname)s] %(message)s')
+log = logging.getLogger(__name__)
 
 # Add project root to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -442,23 +446,26 @@ def api_manual_account_last_sync(account_name):
 
         # Get transactions from that date
         all_transactions = repo.get_transactions()
-        last_date_str = last_date.strftime("%Y/%m/%d")
+        last_date_str = last_date.strftime("%Y-%m-%d")
 
-        # Filter transactions for this account on the last sync date
-        transactions_on_date = [
-            {
-                "capture_date": t[0],
-                "auth_date": t[1],
-                "description": t[2],
-                "category": t[3] if len(t) > 3 else "",
-                "account": t[4] if len(t) > 4 else "",
-                "balance": t[5] if len(t) > 5 else "",
-                "currency": t[6] if len(t) > 6 else "",
-                "amount": t[7] if len(t) > 7 else "",
-            }
-            for t in all_transactions
-            if len(t) > 4 and t[4] == account_name and (t[1] == last_date_str or t[0] == last_date_str)
-        ]
+        log.info(f"Searching for account_name={account_name}, last_date_str={last_date_str}, total_transactions={len(all_transactions)}")
+
+        # Schema from Expenses sheet: [DateCapture, DateAuth, Description, Account, Type, Category, ?, Amount]
+        # Indexes:                        0           1          2          3       4       5      6    7
+        transactions_on_date = []
+        for t in all_transactions:
+            if len(t) > 3 and t[3] == account_name:
+                log.info(f"Account match: capture={t[0]}, auth={t[1]}, last_date_str={last_date_str}, match={(t[1] == last_date_str or t[0] == last_date_str)}")
+                if t[1] == last_date_str or t[0] == last_date_str:
+                    transactions_on_date.append({
+                        "capture_date": t[0],
+                        "auth_date": t[1],
+                        "description": t[2],
+                        "account": t[3] if len(t) > 3 else "",
+                        "type": t[4] if len(t) > 4 else "",
+                        "category": t[5] if len(t) > 5 else "",
+                        "amount": t[7] if len(t) > 7 else "",
+                    })
 
         return jsonify({
             "account_name": account_name,
