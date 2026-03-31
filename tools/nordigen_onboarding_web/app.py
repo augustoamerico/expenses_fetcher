@@ -3,13 +3,21 @@
 
 import argparse
 import os
+import sys
 import json
+import tempfile
 from datetime import datetime
 from urllib.parse import urlencode
 
 import requests
 import yaml
 from flask import Flask, request, jsonify, send_from_directory, redirect
+
+# Add project root to path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from src.repository.google_sheet_repository import GoogleSheetRepository
+from src.infrastructure.bank_account_transactions_fetchers.xlsx_transactions_fetcher import XlsxTransactionsFetcher
 
 # Constants
 BASE_URL = "https://bankaccountdata.gocardless.com/api/v2"
@@ -369,6 +377,191 @@ def import_accounts():
         yaml.safe_dump(config, f)
 
     return jsonify({"ok": True, "accounts_added": account_ids})
+
+
+# =============================================================================
+# Manual Accounts Upload Routes
+# =============================================================================
+
+def get_google_sheet_repository():
+    """Build GoogleSheetRepository from config."""
+    config = load_config()
+    repo_config = config.get("repositories", {}).get("googlesheet")
+    if not repo_config:
+        raise ValueError("No googlesheet repository configured")
+    return GoogleSheetRepository(**repo_config)
+
+
+@app.route("/manual")
+def manual_accounts_page():
+    """Serve the manual accounts upload page."""
+    return send_from_directory(app.static_folder, "manual.html")
+
+
+@app.route("/api/manual/accounts", methods=["GET"])
+def api_manual_accounts():
+    """List all xlsx-manual type accounts from config."""
+    if not state.config_file:
+        return jsonify({"error": "Wizard not initialized with config_file"}), 400
+
+    config = load_config()
+    accounts = config.get("accounts", {}) or {}
+    manual_accounts = []
+
+    for name, account in accounts.items():
+        if account.get("type") != "xlsx-manual":
+            continue
+        manual_accounts.append({
+            "name": name,
+            "columns": account.get("columns", {}),
+            "date_format": account.get("date_format", "%d-%m-%Y"),
+        })
+
+    return jsonify(manual_accounts)
+
+
+@app.route("/api/manual/accounts/<account_name>/last_sync", methods=["GET"])
+def api_manual_account_last_sync(account_name):
+    """Get last sync date and transactions for that date from Google Sheets."""
+    if not state.config_file:
+        return jsonify({"error": "Wizard not initialized with config_file"}), 400
+
+    try:
+        repo = get_google_sheet_repository()
+
+        # Get last transaction date from the Data sheet (column A=Sources, B=Last Auth Date)
+        last_date = repo.get_last_transaction_date_for_account(account_name)
+
+        if last_date is None:
+            return jsonify({
+                "account_name": account_name,
+                "last_sync_date": None,
+                "transactions": [],
+                "message": "No transactions found for this account"
+            })
+
+        # Get transactions from that date
+        all_transactions = repo.get_transactions()
+        last_date_str = last_date.strftime("%Y/%m/%d")
+
+        # Filter transactions for this account on the last sync date
+        transactions_on_date = [
+            {
+                "capture_date": t[0],
+                "auth_date": t[1],
+                "description": t[2],
+                "category": t[3] if len(t) > 3 else "",
+                "account": t[4] if len(t) > 4 else "",
+                "balance": t[5] if len(t) > 5 else "",
+                "currency": t[6] if len(t) > 6 else "",
+                "amount": t[7] if len(t) > 7 else "",
+            }
+            for t in all_transactions
+            if len(t) > 4 and t[4] == account_name and (t[1] == last_date_str or t[0] == last_date_str)
+        ]
+
+        return jsonify({
+            "account_name": account_name,
+            "last_sync_date": last_date.strftime("%Y-%m-%d"),
+            "transactions": transactions_on_date,
+        })
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/manual/accounts/<account_name>/upload", methods=["POST"])
+def api_manual_account_upload(account_name):
+    """Upload and process XLSX file for a manual account."""
+    if not state.config_file:
+        return jsonify({"error": "Wizard not initialized with config_file"}), 400
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    if file.filename == "":
+        return jsonify({"error": "No file selected"}), 400
+
+    config = load_config()
+    accounts = config.get("accounts", {}) or {}
+    account_config = accounts.get(account_name)
+
+    if not account_config:
+        return jsonify({"error": f"Account '{account_name}' not found in config"}), 404
+
+    if account_config.get("type") != "xlsx-manual":
+        return jsonify({"error": f"Account '{account_name}' is not an xlsx-manual type"}), 400
+
+    try:
+        # Save uploaded file to temp location
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            file.save(tmp.name)
+            tmp_path = tmp.name
+
+        # Parse XLSX using existing fetcher
+        fetcher = XlsxTransactionsFetcher(
+            header_skip_rows=account_config.get("header_skip_rows", 8),
+            date_format=account_config.get("date_format", "%d-%m-%Y"),
+            decimal_separator=account_config.get("decimal_separator", ","),
+            thousands_separator=account_config.get("thousands_separator", " "),
+            columns=account_config["columns"],
+            sheet_name=account_config.get("sheet_name"),
+            footer_skip_rows=account_config.get("footer_skip_rows", 0),
+        )
+
+        # Get last sync date to filter new transactions
+        repo = get_google_sheet_repository()
+        last_date = repo.get_last_transaction_date_for_account(account_name)
+
+        # Fetch transactions from the file (filter by date if we have a last sync)
+        raw_transactions = fetcher.getTransactions(
+            date_init=last_date,
+            date_end=None,
+            file_path=tmp_path,
+        )
+
+        # Clean up temp file
+        os.unlink(tmp_path)
+
+        if not raw_transactions:
+            return jsonify({
+                "success": True,
+                "message": "No new transactions found in file",
+                "transaction_count": 0,
+            })
+
+        # Convert to the format expected by GoogleSheetRepository
+        # Schema: [capture_date, auth_date, description, category, account, balance, currency, amount]
+        transactions_to_push = []
+        for row in raw_transactions:
+            capture = row["captureDate"].strftime("%Y/%m/%d") if row["captureDate"] else ""
+            auth = row["authDate"].strftime("%Y/%m/%d") if row["authDate"] else capture
+            transactions_to_push.append([
+                capture,
+                auth,
+                row["description"],
+                "",  # category - to be filled later
+                account_name,
+                row.get("balance", ""),
+                "EUR",  # currency - default
+                row["amount"],
+            ])
+
+        # Push to Google Sheets
+        repo.batch_insert(transactions_to_push, check_duplicates=True)
+
+        return jsonify({
+            "success": True,
+            "message": f"Successfully processed {len(transactions_to_push)} transactions",
+            "transaction_count": len(transactions_to_push),
+        })
+
+    except Exception as e:
+        # Clean up temp file if it exists
+        if 'tmp_path' in locals() and os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        return jsonify({"error": str(e)}), 500
 
 
 def main():

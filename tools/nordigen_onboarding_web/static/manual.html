@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Manual Accounts Upload</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@latest/css/pico.min.css" />
+  <style>
+    :root { --accent: hsl(212 100% 45%); }
+    header { margin-block: 1.5rem 1rem; }
+    header h1 { margin: 0; }
+    header p { margin: .25rem 0 0 0; color: var(--muted, #6b7280); }
+
+    .card {
+      padding: 1.25rem;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      background: white;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+      margin-bottom: 1rem;
+    }
+
+    .muted { color: #6b7280; }
+
+    .account-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: .75rem;
+      margin-top: 1rem;
+    }
+
+    .account-item {
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      padding: .65rem .75rem;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      background: #fbfbfb;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .account-item:hover { background-color: #f7fafc; border-color: #d1d5db; }
+    .account-item.selected { background-color: #e0f2fe; border-color: var(--accent); }
+    .account-name { font-weight: 600; }
+
+    .status {
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: .6rem .75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: .9em;
+      white-space: pre-wrap;
+    }
+
+    .success { background: #d1fae5; border-color: #34d399; color: #065f46; }
+    .error { background: #fee2e2; border-color: #f87171; color: #991b1b; }
+
+    .transactions-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      font-size: 0.9em;
+    }
+
+    .transactions-table th,
+    .transactions-table td {
+      padding: .5rem;
+      border: 1px solid #e5e7eb;
+      text-align: left;
+    }
+
+    .transactions-table th {
+      background: #f8fafc;
+      font-weight: 600;
+    }
+
+    .transactions-table tr:hover { background: #f7fafc; }
+
+    .upload-section {
+      margin-top: 1.5rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .file-input-wrapper {
+      display: flex;
+      gap: 1rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .file-input-wrapper input[type="file"] {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .sync-info {
+      display: flex;
+      gap: 2rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .sync-info-item {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sync-info-label {
+      font-size: 0.85em;
+      color: #6b7280;
+    }
+
+    .sync-info-value {
+      font-weight: 600;
+      font-size: 1.1em;
+    }
+
+    .back-link {
+      display: inline-block;
+      margin-bottom: 1rem;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .back-link:hover { text-decoration: underline; }
+
+    .loading {
+      opacity: 0.6;
+      pointer-events: none;
+    }
+
+    #uploadSpinner {
+      display: none;
+      margin-left: 0.5rem;
+    }
+
+    .row-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <a href="/" class="back-link">&larr; Back to Nordigen Wizard</a>
+
+    <header>
+      <h1>Manual Accounts Upload</h1>
+      <p class="muted">Upload XLSX files for manual bank accounts</p>
+    </header>
+
+    <!-- Account Selection -->
+    <section class="card" id="secAccounts">
+      <h3>Select Account</h3>
+      <p class="muted">Choose a manual account to upload transactions for:</p>
+      <div id="accountsList" class="account-list">
+        <p class="muted">Loading accounts...</p>
+      </div>
+    </section>
+
+    <!-- Account Details & Upload -->
+    <section class="card" id="secDetails" style="display: none;">
+      <h3 id="selectedAccountName">Account Details</h3>
+
+      <div class="sync-info">
+        <div class="sync-info-item">
+          <span class="sync-info-label">Last Sync Date</span>
+          <span class="sync-info-value" id="lastSyncDate">-</span>
+        </div>
+        <div class="sync-info-item">
+          <span class="sync-info-label">Transactions on Last Date</span>
+          <span class="sync-info-value" id="transactionCount">-</span>
+        </div>
+      </div>
+
+      <div id="transactionsContainer">
+        <h4>Recent Transactions</h4>
+        <p class="muted" id="noTransactions">No transactions found for this account.</p>
+        <table class="transactions-table" id="transactionsTable" style="display: none;">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Description</th>
+              <th>Category</th>
+              <th>Amount</th>
+            </tr>
+          </thead>
+          <tbody id="transactionsBody"></tbody>
+        </table>
+      </div>
+
+      <div class="upload-section">
+        <h4>Upload New Transactions</h4>
+        <p class="muted">Select an XLSX file exported from your bank. Only new transactions (after the last sync date) will be imported.</p>
+
+        <div class="file-input-wrapper">
+          <input type="file" id="fileInput" accept=".xlsx,.xls" />
+          <button id="uploadBtn" onclick="uploadFile()">
+            Upload & Process
+            <span id="uploadSpinner">...</span>
+          </button>
+        </div>
+
+        <div id="uploadStatus" class="status" style="margin-top: 1rem; display: none;"></div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let accounts = [];
+    let selectedAccount = null;
+
+    async function loadAccounts() {
+      try {
+        const res = await fetch('/api/manual/accounts');
+        const data = await res.json();
+
+        if (data.error) {
+          document.getElementById('accountsList').innerHTML =
+            `<p class="error">${data.error}</p>`;
+          return;
+        }
+
+        accounts = data;
+
+        if (accounts.length === 0) {
+          document.getElementById('accountsList').innerHTML =
+            '<p class="muted">No manual (xlsx-manual) accounts found in config.</p>';
+          return;
+        }
+
+        renderAccountsList();
+      } catch (err) {
+        document.getElementById('accountsList').innerHTML =
+          `<p class="error">Failed to load accounts: ${err.message}</p>`;
+      }
+    }
+
+    function renderAccountsList() {
+      const container = document.getElementById('accountsList');
+      container.innerHTML = '';
+
+      accounts.forEach(acc => {
+        const item = document.createElement('div');
+        item.className = 'account-item' + (selectedAccount === acc.name ? ' selected' : '');
+        item.onclick = () => selectAccount(acc.name);
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'account-name';
+        nameSpan.textContent = acc.name;
+
+        item.appendChild(nameSpan);
+        container.appendChild(item);
+      });
+    }
+
+    async function selectAccount(accountName) {
+      selectedAccount = accountName;
+      renderAccountsList();
+
+      document.getElementById('secDetails').style.display = 'block';
+      document.getElementById('selectedAccountName').textContent = accountName;
+      document.getElementById('lastSyncDate').textContent = 'Loading...';
+      document.getElementById('transactionCount').textContent = '-';
+      document.getElementById('transactionsTable').style.display = 'none';
+      document.getElementById('noTransactions').style.display = 'block';
+      document.getElementById('uploadStatus').style.display = 'none';
+      document.getElementById('fileInput').value = '';
+
+      try {
+        const res = await fetch(`/api/manual/accounts/${encodeURIComponent(accountName)}/last_sync`);
+        const data = await res.json();
+
+        if (data.error) {
+          document.getElementById('lastSyncDate').textContent = 'Error';
+          document.getElementById('noTransactions').textContent = data.error;
+          return;
+        }
+
+        if (data.last_sync_date) {
+          document.getElementById('lastSyncDate').textContent = data.last_sync_date;
+        } else {
+          document.getElementById('lastSyncDate').textContent = 'Never synced';
+        }
+
+        if (data.transactions && data.transactions.length > 0) {
+          document.getElementById('transactionCount').textContent = data.transactions.length;
+          document.getElementById('noTransactions').style.display = 'none';
+          document.getElementById('transactionsTable').style.display = 'table';
+          renderTransactions(data.transactions);
+        } else {
+          document.getElementById('transactionCount').textContent = '0';
+          document.getElementById('noTransactions').style.display = 'block';
+          document.getElementById('noTransactions').textContent = data.message || 'No transactions found for this account.';
+          document.getElementById('transactionsTable').style.display = 'none';
+        }
+      } catch (err) {
+        document.getElementById('lastSyncDate').textContent = 'Error';
+        document.getElementById('noTransactions').textContent = `Failed to load: ${err.message}`;
+      }
+    }
+
+    function renderTransactions(transactions) {
+      const tbody = document.getElementById('transactionsBody');
+      tbody.innerHTML = '';
+
+      transactions.forEach(t => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${t.auth_date || t.capture_date || '-'}</td>
+          <td>${t.description || '-'}</td>
+          <td>${t.category || '-'}</td>
+          <td>${t.amount || '-'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function uploadFile() {
+      if (!selectedAccount) {
+        alert('Please select an account first');
+        return;
+      }
+
+      const fileInput = document.getElementById('fileInput');
+      if (!fileInput.files || fileInput.files.length === 0) {
+        alert('Please select a file to upload');
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const uploadBtn = document.getElementById('uploadBtn');
+      const spinner = document.getElementById('uploadSpinner');
+      const statusDiv = document.getElementById('uploadStatus');
+
+      uploadBtn.disabled = true;
+      spinner.style.display = 'inline';
+      statusDiv.style.display = 'block';
+      statusDiv.className = 'status';
+      statusDiv.textContent = 'Uploading and processing...';
+
+      try {
+        const res = await fetch(
+          `/api/manual/accounts/${encodeURIComponent(selectedAccount)}/upload`,
+          {
+            method: 'POST',
+            body: formData,
+          }
+        );
+
+        const data = await res.json();
+
+        if (data.error) {
+          statusDiv.className = 'status error';
+          statusDiv.textContent = `Error: ${data.error}`;
+        } else {
+          statusDiv.className = 'status success';
+          statusDiv.textContent = data.message || 'Upload successful!';
+
+          // Refresh the account details
+          setTimeout(() => selectAccount(selectedAccount), 1500);
+        }
+      } catch (err) {
+        statusDiv.className = 'status error';
+        statusDiv.textContent = `Upload failed: ${err.message}`;
+      } finally {
+        uploadBtn.disabled = false;
+        spinner.style.display = 'none';
+      }
+    }
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', loadAccounts);
+  </script>
+</body>
+</html>
