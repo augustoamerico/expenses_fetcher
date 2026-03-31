@@ -172,17 +172,17 @@ class GoogleSheetRepository(IRepository):
         Matches on: capture_date, auth_date, account, amount
         Plus: one description contains the other (min 5 chars for containment)
 
-        Schema: [capture_date, auth_date, description, category, account, balance, currency, amount]
-        Indexes:     0            1           2          3         4        5        6        7
+        Schema: [capture_date, auth_date, description, account, type, category, ?, amount]
+        Indexes:     0            1           2          3       4       5      6    7
         """
-        # Need at least 5 elements (up to account) and 8 for amount
-        if len(new_trx) < 5 or len(existing_trx) < 5:
+        # Need at least 4 elements (up to account) and 8 for amount
+        if len(new_trx) < 4 or len(existing_trx) < 4:
             return False
 
-        # Compare core fields: capture_date[0], auth_date[1], account[4]
+        # Compare core fields: capture_date[0], auth_date[1], account[3]
         if (new_trx[0] != existing_trx[0] or
             new_trx[1] != existing_trx[1] or
-            new_trx[4] != existing_trx[4]):
+            new_trx[3] != existing_trx[3]):
             return False
 
         # Compare amount[7] if available

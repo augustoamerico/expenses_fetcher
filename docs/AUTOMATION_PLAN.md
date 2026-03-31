@@ -52,11 +52,14 @@ Zimaboard (CasaOS)
 ```
 Account auth expired?
     │
-    ├─ Yes → ntfy.sh → Phone notification: "Re-auth needed for [Account]"
-    │        └── User opens http://zimaboard-ip:8787 on home WiFi
+    ├─ Yes → Generate bank re-auth link automatically
+    │        └── ntfy.sh → Phone notification with clickable bank OAuth URL
+    │            └── User taps link → completes bank auth → done!
     │
     └─ No  → Continue processing
 ```
+
+**Key improvement:** When auth expires, the cron runner automatically generates a direct link to the bank's OAuth page. You can complete re-authorization from anywhere (not just home WiFi) by tapping the link in the notification.
 
 ---
 
@@ -306,6 +309,49 @@ repositories:
 
 **Note:** If token ever gets revoked (e.g., you revoke access in Google Account settings), you'll need to re-run interactive auth and copy the new token.pickle.
 
+### Step 4d: Automatic Re-Auth Link Generation
+
+When Nordigen authorization expires, the cron runner automatically generates a direct link to the bank's OAuth page and sends it via ntfy. This allows you to complete re-authorization from anywhere (not just home WiFi).
+
+**How it works:**
+
+1. When `NordigenAuthExpiredException` is caught, the runner:
+   - Gets `secret_id`, `secret_key`, and `account` from the account config
+   - Resolves environment variables (e.g., `${NORDIGEN_SECRET_ID}`)
+   - Fetches a fresh Nordigen access token
+   - Gets the `institution_id` from the account details API
+   - Creates a new end-user agreement (90 days)
+   - Creates a requisition with redirect to `https://www.google.com`
+   - Extracts the bank OAuth link from the requisition response
+
+2. Sends an ntfy notification with the clickable bank link
+
+**What you receive on your phone:**
+
+```
+Title: "Re-auth needed: RevolutAccount"
+Message: "Tap to authorize:
+https://ob.nordigen.com/psd2/start/xxx/REVOLUT_REVOLT21"
+```
+
+**Mobile workflow:**
+
+1. Tap the notification
+2. Bank OAuth page opens in browser
+3. Complete authorization (login, approve access)
+4. Redirected to google.com (you can close the tab)
+5. Done! Next cron run will sync successfully
+
+**Why redirect to google.com?**
+
+- The account ID typically stays the same after re-auth (observed over 1+ year)
+- We don't need to capture the callback - just completing the OAuth flow is enough
+- This allows re-auth from anywhere, not just home WiFi where the Flask app runs
+
+**If account ID changes (rare):**
+
+You'll notice transactions aren't syncing. Manually update the `account` field in your config with the new ID from the Nordigen dashboard or by running the onboarding wizard.
+
 ### Step 5: Create Dockerfile
 
 **New file:** `Dockerfile`
@@ -452,31 +498,64 @@ Since Google Sheets mobile app doesn't support script buttons, deploy your exist
 
 ### In Google Apps Script Editor
 
-Add a `doGet` function to your existing script:
+Add a `doGet` function to your existing script with token-based authentication:
 
 ```javascript
-function doGet() {
-  moveFromStagingToExpenses(); // your existing function name
-  return ContentService.createTextOutput("Transactions moved to Expenses!");
+function doGet(e) {
+  var token = e.parameter.token;
+  if (token !== "YOUR_SECRET_TOKEN_HERE") {
+    return ContentService.createTextOutput("Unauthorized");
+  }
+  submitTransactions(); // your existing function name
+  return ContentService.createTextOutput("Transactions submitted!");
 }
 ```
+
+Replace `YOUR_SECRET_TOKEN_HERE` with a secure random string (e.g., `xK9m2Pq7Rz`).
 
 ### Deploy as Web App
 
 1. In Script Editor: **Deploy → New deployment**
 2. Type: **Web app**
 3. Execute as: **Me**
-4. Who has access: **Anyone with link** (URL is kept private)
+4. Who has access: **Anyone** (the token provides security)
 5. Click **Deploy**, copy the URL
+
+### Security Note
+
+Setting "Anyone" sounds open, but the secret token in the URL acts as your password:
+- The full URL (including `?token=...`) is encrypted via HTTPS
+- Network snoopers can only see you're connecting to `script.google.com`, not the token
+- Only someone with the full URL can execute the script
+
+### iOS Shortcut Setup (Recommended)
+
+This gives you a home screen icon that runs the script without opening a browser:
+
+1. Open **Shortcuts** app on iOS
+2. Create new Shortcut
+3. Add action: **Get Contents of URL**
+   - URL: `https://script.google.com/macros/s/.../exec?token=YOUR_SECRET_TOKEN_HERE`
+4. Add action: **Show Notification**
+   - Set notification body to the output from previous step (Contents of URL)
+5. Tap Shortcut name → **Add to Home Screen**
+6. Name it "Submit Expenses" and choose an icon
 
 ### Usage (Mobile Workflow)
 
-1. Save the web app URL as a **private bookmark** on your phone
-2. When you receive ntfy notification "Daily sync complete"
-3. Open Google Sheets app, review Expenses Staging
-4. Tap your bookmark to move reviewed transactions to Expenses
+1. Receive ntfy notification "Daily sync complete"
+2. Open Google Sheets app, review Expenses Staging, fill in categories
+3. Tap your "Submit Expenses" home screen icon
+4. See notification: "Transactions submitted!"
 
-**Note:** The URL is never sent through ntfy - keep it as a private bookmark only.
+### Alternative: Chrome on iOS
+
+If you prefer using a browser instead of Shortcuts:
+- Safari on iOS may redirect `script.google.com` to Google Drive app (broken)
+- Use **Chrome on iOS** instead - it handles the URL correctly
+- You can create a Shortcut that opens Chrome with the URL: `googlechrome://script.google.com/macros/s/.../exec?token=YOUR_SECRET_TOKEN_HERE`
+
+**Note:** The URL with token is never sent through ntfy - keep it private.
 
 ---
 
