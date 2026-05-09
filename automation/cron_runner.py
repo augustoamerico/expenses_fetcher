@@ -23,13 +23,16 @@ import json
 import logging
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from logging.handlers import RotatingFileHandler
 from random import randint
 from typing import Dict, List, Any, Optional
 
 import requests
 import yaml
+
+DEFAULT_PENDING_FILE = "data/pending_reauths.json"
+REAUTH_EXPIRY_HOURS = 24
 
 # Add project root to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -51,13 +54,42 @@ log = logging.getLogger(__name__)
 NORDIGEN_BASE_URL = "https://bankaccountdata.gocardless.com/api/v2"
 
 
-def get_reauth_link(secret_id: str, secret_key: str, account_id: str) -> Optional[str]:
+def get_account_iban(account_id: str, access_token: str) -> Optional[str]:
+    """
+    Fetch IBAN for an account from Nordigen API.
+
+    Args:
+        account_id: Nordigen account UUID
+        access_token: Valid Nordigen access token
+
+    Returns:
+        IBAN string or None if not available
+    """
+    try:
+        response = requests.get(
+            f"{NORDIGEN_BASE_URL}/accounts/{account_id}/details/",
+            headers={
+                "accept": "application/json",
+                "Authorization": f"Bearer {access_token}",
+            },
+            timeout=30,
+        )
+        if response.status_code == 200:
+            iban = response.json().get("account", {}).get("iban")
+            if iban:
+                log.info(f"Got IBAN for account {account_id}: {iban[:4]}...{iban[-4:]}")
+            return iban
+    except requests.RequestException as e:
+        log.error(f"Error fetching IBAN for account {account_id}: {e}")
+    return None
+
+
+def get_reauth_link(secret_id: str, secret_key: str, account_id: str) -> Optional[Dict[str, str]]:
     """
     Generate a bank re-authorization link for an expired Nordigen account.
 
-    This creates a new agreement and requisition, returning the bank's OAuth URL.
-    The redirect is set to google.com since we don't need the callback -
-    the account ID typically stays the same after re-auth.
+    This creates a new agreement and requisition, returning the bank's OAuth URL
+    and requisition ID for tracking.
 
     Args:
         secret_id: Nordigen API secret ID
@@ -65,7 +97,7 @@ def get_reauth_link(secret_id: str, secret_key: str, account_id: str) -> Optiona
         account_id: The Nordigen account UUID
 
     Returns:
-        The bank OAuth URL, or None if generation failed
+        Dict with 'link' and 'requisition_id', or None if generation failed
     """
     try:
         # Step 1: Get access token
@@ -146,13 +178,16 @@ def get_reauth_link(secret_id: str, secret_key: str, account_id: str) -> Optiona
             log.error(f"Failed to create requisition: {requisition_response.text}")
             return None
 
-        link = requisition_response.json().get("link")
-        if not link:
-            log.error("No link in requisition response")
+        requisition_data = requisition_response.json()
+        link = requisition_data.get("link")
+        requisition_id = requisition_data.get("id")
+
+        if not link or not requisition_id:
+            log.error("No link or requisition_id in requisition response")
             return None
 
-        log.info(f"Generated re-auth link for account {account_id}")
-        return link
+        log.info(f"Generated re-auth link for account {account_id}, requisition_id: {requisition_id}")
+        return {"link": link, "requisition_id": requisition_id}
 
     except requests.RequestException as e:
         log.error(f"Request error generating re-auth link: {e}")
@@ -160,6 +195,68 @@ def get_reauth_link(secret_id: str, secret_key: str, account_id: str) -> Optiona
     except Exception as e:
         log.error(f"Unexpected error generating re-auth link: {e}")
         return None
+
+
+def load_pending_reauths(file_path: str) -> Dict[str, Any]:
+    """Load pending re-auths from JSON file."""
+    if not os.path.exists(file_path):
+        return {"pending": [], "history": []}
+
+    try:
+        with open(file_path, "r") as f:
+            data = json.load(f)
+            if "pending" not in data:
+                data["pending"] = []
+            if "history" not in data:
+                data["history"] = []
+            return data
+    except (json.JSONDecodeError, IOError) as e:
+        log.warning(f"Error loading pending reauths file: {e}")
+        return {"pending": [], "history": []}
+
+
+def save_pending_reauths(file_path: str, data: Dict[str, Any]) -> None:
+    """Save pending re-auths to JSON file."""
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def add_pending_reauth(
+    file_path: str,
+    requisition_id: str,
+    accounts: List[Dict[str, str]],
+    secret_id: str,
+    secret_key: str,
+) -> None:
+    """
+    Add a pending re-auth entry to the JSON file.
+
+    Args:
+        file_path: Path to pending reauths JSON file
+        requisition_id: Nordigen requisition ID
+        accounts: List of account dicts with keys: account_name, old_account_id, iban
+        secret_id: Nordigen secret ID
+        secret_key: Nordigen secret key
+    """
+    data = load_pending_reauths(file_path)
+
+    now = datetime.now(timezone.utc)
+    expires_at = now + timedelta(hours=REAUTH_EXPIRY_HOURS)
+
+    account_names = [a["account_name"] for a in accounts]
+
+    data["pending"].append({
+        "requisition_id": requisition_id,
+        "accounts": accounts,
+        "secret_id": secret_id,
+        "secret_key": secret_key,
+        "created_at": now.isoformat().replace("+00:00", "Z"),
+        "expires_at": expires_at.isoformat().replace("+00:00", "Z"),
+    })
+
+    save_pending_reauths(file_path, data)
+    log.info(f"Added pending re-auth for {', '.join(account_names)}, expires at {expires_at.isoformat()}")
 
 
 def setup_logging(log_dir: str = "/app/logs") -> None:
@@ -282,10 +379,52 @@ def build_expense_fetcher(config: Dict[str, Any]) -> ExpensesFetcher:
     return ExpensesFetcher(repositories, accounts, **transactions_cfg)
 
 
+def _resolve_env_var(value: Optional[str]) -> Optional[str]:
+    """Resolve environment variable syntax like ${VAR_NAME}."""
+    if value and value.startswith("${") and value.endswith("}"):
+        env_var = value[2:-1]
+        return os.environ.get(env_var)
+    return value
+
+
+def _group_accounts_by_credentials(
+    auth_expired: List[tuple],
+) -> Dict[tuple, List[Dict[str, Any]]]:
+    """
+    Group expired accounts by (secret_id, secret_key) for shared requisitions.
+
+    Returns:
+        Dict mapping (secret_id, secret_key) -> list of account info dicts
+    """
+    groups: Dict[tuple, List[Dict[str, Any]]] = {}
+
+    for account_name, account_config in auth_expired:
+        secret_id = _resolve_env_var(account_config.get("secret_id"))
+        secret_key = _resolve_env_var(account_config.get("secret_key"))
+        account_id = account_config.get("account")
+
+        if not all([secret_id, secret_key, account_id]):
+            log.warning(f"Missing credentials for {account_name}, skipping")
+            continue
+
+        key = (secret_id, secret_key)
+        if key not in groups:
+            groups[key] = []
+
+        groups[key].append({
+            "account_name": account_name,
+            "old_account_id": account_id,
+            "config": account_config,
+        })
+
+    return groups
+
+
 def send_summary_notification(
     notifier: NtfyNotifier,
     results: Dict[str, List],
     transaction_count: int,
+    pending_file: str = DEFAULT_PENDING_FILE,
 ) -> None:
     """
     Send summary notification based on results.
@@ -295,45 +434,89 @@ def send_summary_notification(
         results: Dict with "success", "auth_expired", and "errors" lists
                  auth_expired contains (account_name, account_config) tuples
         transaction_count: Number of transactions staged
+        pending_file: Path to pending re-auths JSON file
     """
     success_count = len(results["success"])
     auth_count = len(results["auth_expired"])
     error_count = len(results["errors"])
 
-    # Send individual re-auth notifications with bank links
-    for account_name, account_config in results["auth_expired"]:
-        secret_id = account_config.get("secret_id")
-        secret_key = account_config.get("secret_key")
-        account_id = account_config.get("account")
+    # Group expired accounts by credentials (same bank = same requisition)
+    credential_groups = _group_accounts_by_credentials(results["auth_expired"])
 
-        # Resolve environment variables if needed (e.g., ${NORDIGEN_SECRET_ID})
-        if secret_id and secret_id.startswith("${") and secret_id.endswith("}"):
-            env_var = secret_id[2:-1]
-            secret_id = os.environ.get(env_var)
-        if secret_key and secret_key.startswith("${") and secret_key.endswith("}"):
-            env_var = secret_key[2:-1]
-            secret_key = os.environ.get(env_var)
+    for (secret_id, secret_key), account_group in credential_groups.items():
+        # Use first account to generate re-auth link (all share same institution)
+        first_account = account_group[0]
+        first_account_id = first_account["old_account_id"]
+        account_names = [a["account_name"] for a in account_group]
 
-        if secret_id and secret_key and account_id:
-            log.info(f"Generating re-auth link for {account_name}")
-            reauth_link = get_reauth_link(secret_id, secret_key, account_id)
+        log.info(f"Generating re-auth link for group: {', '.join(account_names)}")
+        reauth_result = get_reauth_link(secret_id, secret_key, first_account_id)
 
-            if reauth_link:
-                notifier.send(
-                    title=f"Re-auth needed: {account_name}",
-                    message=f"Tap to authorize:\n{reauth_link}",
-                    priority="high",
-                    tags=["warning", "link"],
-                )
+        if reauth_result:
+            reauth_link = reauth_result["link"]
+            requisition_id = reauth_result["requisition_id"]
+
+            # Get access token for IBAN fetching
+            token_response = requests.post(
+                f"{NORDIGEN_BASE_URL}/token/new/",
+                headers={"Content-Type": "application/json", "accept": "application/json"},
+                data=json.dumps({"secret_id": secret_id, "secret_key": secret_key}),
+                timeout=30,
+            )
+            access_token = None
+            if token_response.status_code == 200:
+                access_token = token_response.json().get("access")
+
+            # Build accounts list with IBANs for pending entry
+            pending_accounts = []
+            for acc in account_group:
+                iban = None
+                if access_token:
+                    iban = get_account_iban(acc["old_account_id"], access_token)
+
+                pending_accounts.append({
+                    "account_name": acc["account_name"],
+                    "old_account_id": acc["old_account_id"],
+                    "iban": iban,
+                })
+
+            # Save pending re-auth for polling
+            add_pending_reauth(
+                file_path=pending_file,
+                requisition_id=requisition_id,
+                accounts=pending_accounts,
+                secret_id=secret_id,
+                secret_key=secret_key,
+            )
+
+            # Send notification
+            if len(account_names) == 1:
+                title = f"Re-auth needed: {account_names[0]}"
             else:
+                title = f"Re-auth needed: {len(account_names)} accounts"
+
+            notifier.send(
+                title=title,
+                message=f"Tap to authorize: {', '.join(account_names)}",
+                priority="high",
+                tags=["warning", "link"],
+                click=reauth_link,
+            )
+        else:
+            for acc in account_group:
                 notifier.send(
-                    title=f"Re-auth needed: {account_name}",
+                    title=f"Re-auth needed: {acc['account_name']}",
                     message="Could not generate re-auth link. Check logs.",
                     priority="high",
                     tags=["warning"],
                 )
-        else:
-            log.warning(f"Missing credentials for {account_name}, cannot generate re-auth link")
+
+    # Notify about accounts with missing credentials
+    for account_name, account_config in results["auth_expired"]:
+        secret_id = _resolve_env_var(account_config.get("secret_id"))
+        secret_key = _resolve_env_var(account_config.get("secret_key"))
+        account_id = account_config.get("account")
+        if not all([secret_id, secret_key, account_id]):
             notifier.send(
                 title=f"Re-auth needed: {account_name}",
                 message="Missing credentials in config. Manual re-auth required.",
@@ -367,13 +550,18 @@ def send_summary_notification(
         )
 
 
-def run_automation(config_path: str, notifier: NtfyNotifier) -> bool:
+def run_automation(
+    config_path: str,
+    notifier: NtfyNotifier,
+    pending_file: str = DEFAULT_PENDING_FILE,
+) -> bool:
     """
     Main automation entry point.
 
     Args:
         config_path: Path to YAML configuration file
         notifier: NtfyNotifier instance for sending notifications
+        pending_file: Path to pending re-auths JSON file
 
     Returns:
         True if all accounts succeeded, False otherwise
@@ -445,7 +633,7 @@ def run_automation(config_path: str, notifier: NtfyNotifier) -> bool:
                 return False
 
         # Send summary notification
-        send_summary_notification(notifier, results, transaction_count)
+        send_summary_notification(notifier, results, transaction_count, pending_file)
 
         # Close connections
         expense_fetcher.close_all_connections()
@@ -478,6 +666,12 @@ def main():
         default="/app/logs",
         help="Directory for log files (default: /app/logs)",
     )
+    parser.add_argument(
+        "--pending-file",
+        dest="pending_file",
+        default=DEFAULT_PENDING_FILE,
+        help=f"Path to pending re-auths JSON file (default: {DEFAULT_PENDING_FILE})",
+    )
     args = parser.parse_args()
 
     # Setup logging
@@ -493,7 +687,7 @@ def main():
     notifier = NtfyNotifier(topic=ntfy_topic, server=ntfy_server)
 
     # Run automation
-    success = run_automation(args.config_file, notifier)
+    success = run_automation(args.config_file, notifier, args.pending_file)
     sys.exit(0 if success else 1)
 
 

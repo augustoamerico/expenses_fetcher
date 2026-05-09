@@ -260,14 +260,14 @@ class GoogleSheetRepository(IRepository):
         return last_date
 
     def push_categories(self, categories: List[str]) -> None:
-        self.__upsert_range(categories, f"{self.metadata_sheet_name}!D2:D")
+        self.__upsert_range(categories, f"{self.metadata_sheet_name}!E2:E")
 
     def pull_categories(self) -> List[str]:
         result = (
             self.sheet.values()
             .get(
                 spreadsheetId=self.spreadsheet_id,
-                range=f"{self.metadata_sheet_name}!D2:D",
+                range=f"{self.metadata_sheet_name}!E2:E",
             )
             .execute()
         )

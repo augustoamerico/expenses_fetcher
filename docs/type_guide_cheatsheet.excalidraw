@@ -1,0 +1,203 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "hand-drawn",
+  "elements": [
+    {
+      "id": "main-box",
+      "type": "rectangle",
+      "x": 50,
+      "y": 50,
+      "width": 420,
+      "height": 380,
+      "backgroundColor": "#ffffff",
+      "strokeColor": "#1e1e1e",
+      "strokeWidth": 2,
+      "roughness": 0,
+      "fillStyle": "solid"
+    },
+    {
+      "id": "title",
+      "type": "text",
+      "x": 200,
+      "y": 60,
+      "width": 120,
+      "height": 30,
+      "text": "TYPE GUIDE",
+      "fontSize": 20,
+      "fontFamily": 3,
+      "textAlign": "center",
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "divider1",
+      "type": "line",
+      "x": 60,
+      "y": 95,
+      "width": 400,
+      "height": 0,
+      "strokeColor": "#868e96",
+      "strokeWidth": 1,
+      "points": [[0, 0], [400, 0]]
+    },
+    {
+      "id": "debt-label",
+      "type": "text",
+      "x": 70,
+      "y": 105,
+      "width": 80,
+      "height": 24,
+      "text": "DEBT (-)",
+      "fontSize": 14,
+      "fontFamily": 3,
+      "strokeColor": "#e03131"
+    },
+    {
+      "id": "debt-desc",
+      "type": "text",
+      "x": 160,
+      "y": 105,
+      "width": 300,
+      "height": 40,
+      "text": "Expenses, purchases, bills, taxes\n→ IMPOSTO IRS = Debt/Taxes",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "income-label",
+      "type": "text",
+      "x": 70,
+      "y": 155,
+      "width": 80,
+      "height": 24,
+      "text": "INCOME (+)",
+      "fontSize": 14,
+      "fontFamily": 3,
+      "strokeColor": "#2f9e44"
+    },
+    {
+      "id": "income-desc",
+      "type": "text",
+      "x": 160,
+      "y": 155,
+      "width": 300,
+      "height": 50,
+      "text": "Active earnings only\n→ Salary, reimbursements, cashback\n→ NOT interest/dividends",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "invest-label",
+      "type": "text",
+      "x": 70,
+      "y": 215,
+      "width": 80,
+      "height": 24,
+      "text": "INVESTMENT",
+      "fontSize": 14,
+      "fontFamily": 3,
+      "strokeColor": "#1971c2"
+    },
+    {
+      "id": "invest-dir",
+      "type": "text",
+      "x": 70,
+      "y": 232,
+      "width": 60,
+      "height": 20,
+      "text": "(+ or -)",
+      "fontSize": 11,
+      "fontFamily": 3,
+      "strokeColor": "#1971c2"
+    },
+    {
+      "id": "invest-desc",
+      "type": "text",
+      "x": 160,
+      "y": 215,
+      "width": 300,
+      "height": 40,
+      "text": "Capital to/from investment vehicles\n→ JUROS DEPOSITO = Investment (+)\n→ Dividends, ETF buys/sells",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "transfer-label",
+      "type": "text",
+      "x": 70,
+      "y": 270,
+      "width": 80,
+      "height": 24,
+      "text": "TRANSFER",
+      "fontSize": 14,
+      "fontFamily": 3,
+      "strokeColor": "#862e9c"
+    },
+    {
+      "id": "transfer-desc",
+      "type": "text",
+      "x": 160,
+      "y": 270,
+      "width": 300,
+      "height": 30,
+      "text": "Between your own accounts\n→ Main↔Revolut, Main↔CheckingAccount",
+      "fontSize": 12,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "divider2",
+      "type": "line",
+      "x": 60,
+      "y": 310,
+      "width": 400,
+      "height": 0,
+      "strokeColor": "#868e96",
+      "strokeWidth": 1,
+      "points": [[0, 0], [400, 0]]
+    },
+    {
+      "id": "funded-title",
+      "type": "text",
+      "x": 70,
+      "y": 320,
+      "width": 300,
+      "height": 20,
+      "text": "FUNDED EXPENSE (using prior savings):",
+      "fontSize": 12,
+      "fontFamily": 3,
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "funded-steps",
+      "type": "text",
+      "x": 80,
+      "y": 342,
+      "width": 370,
+      "height": 50,
+      "text": "1. Expense transaction → Debt (-)\n2. Withdrawal transaction → Investment/Transfer (+)\n3. FundedExpensesCategory record → links them",
+      "fontSize": 11,
+      "fontFamily": 1,
+      "strokeColor": "#1e1e1e"
+    },
+    {
+      "id": "funded-warning",
+      "type": "text",
+      "x": 70,
+      "y": 400,
+      "width": 390,
+      "height": 20,
+      "text": "⚠️ Funding = money saved in PRIOR periods, not new income",
+      "fontSize": 11,
+      "fontFamily": 3,
+      "strokeColor": "#e67700"
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff",
+    "gridSize": 20
+  }
+}

@@ -344,13 +344,71 @@ https://ob.nordigen.com/psd2/start/xxx/REVOLUT_REVOLT21"
 
 **Why redirect to google.com?**
 
-- The account ID typically stays the same after re-auth (observed over 1+ year)
 - We don't need to capture the callback - just completing the OAuth flow is enough
 - This allows re-auth from anywhere, not just home WiFi where the Flask app runs
 
-**If account ID changes (rare):**
+### Step 4e: Re-Auth Poller (Account ID Change Detection)
 
-You'll notice transactions aren't syncing. Manually update the `account` field in your config with the new ID from the Nordigen dashboard or by running the onboarding wizard.
+The account ID may change after re-auth (observed with Revolut). A separate poller script runs every 30 minutes to detect completed re-auths and automatically update the config.
+
+**New file:** `automation/reauth_poller.py`
+
+**Storage file:** `data/pending_reauths.json`
+
+```json
+{
+  "pending": [
+    {
+      "requisition_id": "a6e17e97-...",
+      "account_name": "RevolutAccount",
+      "old_account_id": "2eeb5176-...",
+      "secret_id": "...",
+      "secret_key": "...",
+      "created_at": "2026-04-02T10:00:00Z",
+      "expires_at": "2026-04-03T10:00:00Z"
+    }
+  ],
+  "history": [
+    {
+      "account_name": "RevolutAccount",
+      "old_account_id": "2eeb5176-...",
+      "new_account_id": "4039e238-...",
+      "replaced_at": "2026-04-02T10:30:00Z"
+    }
+  ]
+}
+```
+
+**Flow:**
+
+1. `cron_runner.py` detects auth expired → generates re-auth link → saves to `pending` → sends ntfy
+2. `reauth_poller.py` runs every 30 min (via cron)
+3. Checks each pending requisition status via Nordigen API
+4. When status is "LN" (linked):
+   - If account ID changed → update config with `sed` → add to `history` → notify
+   - If account ID same → notify success
+5. Pending entries expire after 24 hours
+6. History entries are kept for 180 days (~6 months, covers 2 re-auth cycles)
+
+**Cron setup:**
+
+```bash
+# Daily sync at 8:00 AM
+0 8 * * * cd /path/to/expenses_fetcher && docker-compose run --rm expenses-fetcher-cron
+
+# Re-auth poller every 30 min
+*/30 * * * * cd /path/to/expenses_fetcher && python automation/reauth_poller.py --config-file config/accounts_cfg.yaml
+```
+
+**Notifications:**
+
+| Scenario | Title | Message |
+|----------|-------|---------|
+| Auth completed, ID unchanged | "Re-auth complete: {account}" | "Account ID unchanged. Sync should work now." |
+| Auth completed, ID changed | "Re-auth complete: {account}" | "Config updated with new account ID: {id}" |
+| Config update failed | "Re-auth issue: {account}" | "Could not update config. New account ID: {id}" |
+| Pending expired (24h) | "Re-auth expired: {account}" | "Re-auth was not completed within 24 hours. Please retry." |
+| Requisition expired | "Re-auth failed: {account}" | "Requisition expired. Please retry re-auth." |
 
 ### Step 5: Create Dockerfile
 
@@ -556,6 +614,88 @@ If you prefer using a browser instead of Shortcuts:
 - You can create a Shortcut that opens Chrome with the URL: `googlechrome://script.google.com/macros/s/.../exec?token=YOUR_SECRET_TOKEN_HERE`
 
 **Note:** The URL with token is never sent through ntfy - keep it private.
+
+---
+
+## Step 8: Month Closure Detection
+
+To reliably close a month (for reporting, trend analysis, and dropping the Surplus workaround), all **active** accounts must have synced data covering that month.
+
+### 8.1 Add Status Column to Data Sheet
+
+**Google Sheet change:** Add column E `Status` to the `Data` sheet.
+
+| Column | Name | Purpose |
+|--------|------|---------|
+| A | Sources | Account name |
+| B | Last Date by Source | Last transaction date (YYYY-MM-DD) |
+| C | BalanceOffset | Balance adjustment |
+| D | Categories | (existing, used by Python) |
+| **E** | **Status** | `Active` or `Inactive` |
+
+**Values:**
+- `Active` - Account is in use, must be current for month closure
+- `Inactive` - Defunct/closed account, ignored for closure checks
+
+**Accounts to mark Inactive:**
+- MyEdenred (last: 2021-07-06)
+- Precard (last: 2021-06-25)
+- Degiro (last: 2022-10-31, €0 balance)
+- CoverFlexMeal (last: 2025-05-16)
+- Any other closed/unused accounts
+
+**Why Column E?** The Python code only accesses columns A, B, and D. Adding E requires zero code changes to existing functionality.
+
+### 8.2 Month Closure Check Formula
+
+Add this formula to your Month Report sheet to check if a month can be closed:
+
+```
+=LET(
+  target_ym, B1,
+  target_year, LEFT(target_ym, 4),
+  target_month, RIGHT(target_ym, 2),
+  last_day, EOMONTH(DATE(target_year, target_month, 1), 0),
+
+  active_accounts, FILTER(Data!A2:E, Data!E2:E="Active"),
+  account_names, INDEX(active_accounts,,1),
+  last_dates, INDEX(active_accounts,,2),
+
+  accounts_ready, SUMPRODUCT((last_dates >= last_day) * 1),
+  total_active, ROWS(active_accounts),
+
+  IF(accounts_ready = total_active,
+    "Month Closed",
+    accounts_ready & "/" & total_active & " accounts ready")
+)
+```
+
+### 8.3 Stale Account Nudge (Future)
+
+Add to `cron_runner.py` after daily sync:
+
+```python
+def check_stale_manual_accounts(repo, notifier, days_threshold=7):
+    """Alert if active manual accounts haven't been synced recently."""
+    # Read Data sheet A2:E (Sources, LastDate, _, _, Status)
+    # Filter where Status = "Active" AND account is manual (not in Nordigen config)
+    # If LastDate < (today - days_threshold), send nudge
+
+    # Example notification:
+    # Title: "Manual account stale"
+    # Message: "InvestingAccount last synced 2025-12-29 (124 days ago)"
+```
+
+**Trigger:** Run on 1st-5th of each month to remind about month closure.
+
+### 8.4 Implementation Checklist
+
+- [ ] Add Status column (E) to Data sheet in Google Sheets
+- [ ] Mark inactive accounts: MyEdenred, Precard, Degiro, CoverFlexMeal
+- [ ] Mark active accounts: Main, RevolutAccount, InvestingAccount, CheckingAccount, etc.
+- [ ] Add closure check formula to Month Report
+- [ ] (Future) Add `check_stale_manual_accounts()` to cron_runner.py
+- [ ] (Future) Remove Surplus concept from queries once closure flow is trusted
 
 ---
 
