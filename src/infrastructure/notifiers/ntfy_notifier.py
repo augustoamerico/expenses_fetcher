@@ -47,6 +47,7 @@ class NtfyNotifier:
         message: str,
         priority: str = "default",
         tags: Optional[List[str]] = None,
+        click: Optional[str] = None,
     ) -> bool:
         """
         Send a notification via ntfy.
@@ -56,6 +57,7 @@ class NtfyNotifier:
             message: Notification body
             priority: One of "min", "low", "default", "high", "urgent"
             tags: List of emoji tags (e.g., ["warning", "rotating_light"])
+            click: URL to open when notification is tapped
 
         Returns:
             True if notification was sent successfully, False otherwise
@@ -67,6 +69,8 @@ class NtfyNotifier:
         }
         if tags:
             headers["Tags"] = ",".join(tags)
+        if click:
+            headers["Click"] = click
 
         try:
             response = requests.post(
