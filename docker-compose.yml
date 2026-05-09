@@ -26,7 +26,9 @@ services:
       - "8787:8787"
     volumes:
       - ./config:/app/config:ro
-    command: python tools/nordigen_onboarding_web/app.py --config-file /app/config/config.yaml --port 8787
+      - ./credentials.json:/app/credentials.json
+      - ./token.pickle:/app/token.pickle
+    command: python tools/nordigen_onboarding_web/app.py --config-file /app/config/accounts_cfg.yaml --port 8787
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8787/"]
@@ -34,3 +36,16 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+  # Re-auth poller - checks if pending re-auths are completed
+  # Usage: docker-compose run --rm reauth-poller
+  # Cron: */30 * * * * cd /path && docker-compose run --rm reauth-poller
+
+  reauth-poller:
+    build: .
+    environment:
+      - NTFY_TOPIC=${NTFY_TOPIC}
+      - NTFY_SERVER=${NTFY_SERVER:-https://ntfy.sh}
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+    command: python automation/reauth_poller.py --config-file /app/config/accounts_cfg.yaml

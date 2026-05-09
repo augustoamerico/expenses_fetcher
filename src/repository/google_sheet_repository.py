@@ -109,10 +109,10 @@ class GoogleSheetRepository(IRepository):
         return transactions
 
     def _parse_pulled_transaction(self, transaction) -> List:
-        if "," in transaction[-1]:
+        if isinstance(transaction[-1], str) and "," in transaction[-1]:
             transaction[-1] = transaction[-1].replace(",", "")
 
-        if "," in transaction[-2]:
+        if isinstance(transaction[-2], str) and "," in transaction[-2]:
             transaction[-2] = transaction[-2].replace(",", "")
         try:
             float_parse = float(transaction[-1])
@@ -260,14 +260,14 @@ class GoogleSheetRepository(IRepository):
         return last_date
 
     def push_categories(self, categories: List[str]) -> None:
-        self.__upsert_range(categories, f"{self.metadata_sheet_name}!E2:E")
+        self.__upsert_range(categories, f"{self.metadata_sheet_name}!F2:F")
 
     def pull_categories(self) -> List[str]:
         result = (
             self.sheet.values()
             .get(
                 spreadsheetId=self.spreadsheet_id,
-                range=f"{self.metadata_sheet_name}!E2:E",
+                range=f"{self.metadata_sheet_name}!F2:F",
             )
             .execute()
         )

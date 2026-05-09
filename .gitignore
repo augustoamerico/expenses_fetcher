@@ -11,5 +11,6 @@ include/
 credentials.json
 *.sqlite
 token.pickle
+data/pending_reauths.json
 example_csv_raw/
 !tools/

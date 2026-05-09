@@ -539,24 +539,39 @@ def api_manual_account_upload(account_name):
             })
 
         # Convert to the format expected by GoogleSheetRepository
-        # Schema: [capture_date, auth_date, description, category, account, balance, currency, amount]
+        # Schema: [capture_date, auth_date, description, account_name, type, category, unsigned_value, signed_value]
         transactions_to_push = []
         for row in raw_transactions:
             capture = row["captureDate"].strftime("%Y/%m/%d") if row["captureDate"] else ""
             auth = row["authDate"].strftime("%Y/%m/%d") if row["authDate"] else capture
+            amount = row["amount"]
+            unsigned_value = abs(amount)
             transactions_to_push.append([
                 capture,
                 auth,
                 row["description"],
-                "",  # category - to be filled later
                 account_name,
-                row.get("balance", ""),
-                "EUR",  # currency - default
-                row["amount"],
+                "",  # type - to be filled later
+                "",  # category - to be filled later
+                unsigned_value,
+                amount,
             ])
 
         # Push to Google Sheets
         repo.batch_insert(transactions_to_push, check_duplicates=True)
+
+        # Record sync in Accounts_Balance for month closure tracking
+        from datetime import datetime
+        now = datetime.now()
+        date_str = now.strftime("%Y-%m-%d")
+        datetime_str = now.strftime("%Y-%m-%d %H:%M:%S")
+        year_month = now.strftime("%Y%m")
+        if raw_transactions:
+            latest_trx = max(raw_transactions, key=lambda t: t["authDate"] or t["captureDate"])
+            last_balance = latest_trx.get("balance", "")
+        else:
+            last_balance = ""
+        repo.append_balances([[date_str, datetime_str, account_name, last_balance, year_month, "manual"]])
 
         return jsonify({
             "success": True,
@@ -568,6 +583,8 @@ def api_manual_account_upload(account_name):
         # Clean up temp file if it exists
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+        import traceback
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
