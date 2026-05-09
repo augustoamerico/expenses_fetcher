@@ -26,6 +26,8 @@ services:
       - "8787:8787"
     volumes:
       - ./config:/app/config:ro
+      - ./credentials.json:/app/credentials.json
+      - ./token.pickle:/app/token.pickle
     command: python tools/nordigen_onboarding_web/app.py --config-file /app/config/config.yaml --port 8787
     restart: unless-stopped
     healthcheck:
