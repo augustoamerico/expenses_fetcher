@@ -22,6 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspa
 
 from src.repository.google_sheet_repository import GoogleSheetRepository
 from src.infrastructure.bank_account_transactions_fetchers.xlsx_transactions_fetcher import XlsxTransactionsFetcher
+from src.application.budget import generate_budget_proposal
 
 # Constants
 BASE_URL = "https://bankaccountdata.gocardless.com/api/v2"
@@ -583,6 +584,76 @@ def api_manual_account_upload(account_name):
         # Clean up temp file if it exists
         if 'tmp_path' in locals() and os.path.exists(tmp_path):
             os.unlink(tmp_path)
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+
+# ==================== Budget Wizard ====================
+
+@app.route("/budget")
+def budget_page():
+    """Serve the budget wizard page."""
+    return send_from_directory(app.static_folder, "budget.html")
+
+
+@app.route("/api/budget/proposal", methods=["POST"])
+def api_budget_proposal():
+    """Generate a budget proposal for a target month."""
+    if not state.config_file:
+        return jsonify({"error": "Wizard not initialized with config_file"}), 400
+
+    data = request.json or {}
+    target_month = data.get("target_month")
+
+    if not target_month:
+        return jsonify({"error": "target_month is required"}), 400
+
+    # Validate format (YYYYMM)
+    if len(target_month) != 6 or not target_month.isdigit():
+        return jsonify({"error": "target_month must be in YYYYMM format"}), 400
+
+    try:
+        repo = get_google_sheet_repository()
+
+        # Get last 3 months of expenses
+        expenses_summary = repo.get_expenses_summary_last_n_months(3)
+
+        # Get existing budget joiners for target month
+        existing_joiners = repo.get_existing_budget_joiners(target_month)
+
+        # Generate proposal
+        proposal_rows, stats = generate_budget_proposal(
+            expenses_summary=expenses_summary,
+            existing_joiners=existing_joiners,
+            target_month=target_month,
+            min_months_threshold=2,
+            lookback_months=3,
+        )
+
+        if not proposal_rows:
+            message = "No new categories to propose"
+            if stats["skipped_existing"] > 0:
+                message = f"Budget for {target_month} already complete — {stats['skipped_existing']} categories exist"
+            return jsonify({
+                "success": True,
+                "message": message,
+                "rows_created": 0,
+                "stats": stats,
+            })
+
+        # Clear existing staging and push new proposal
+        repo.clear_budget_staging()
+        repo.push_budget_staging(proposal_rows)
+
+        return jsonify({
+            "success": True,
+            "message": f"Budget proposal created with {len(proposal_rows)} categories",
+            "rows_created": len(proposal_rows),
+            "stats": stats,
+        })
+
+    except Exception as e:
         import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500

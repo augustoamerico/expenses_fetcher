@@ -1,0 +1,226 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Budget Wizard</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@latest/css/pico.min.css" />
+  <style>
+    :root { --accent: hsl(212 100% 45%); }
+    header { margin-block: 1.5rem 1rem; }
+    header h1 { margin: 0; }
+    header p { margin: .25rem 0 0 0; color: var(--muted, #6b7280); }
+
+    .card {
+      padding: 1.25rem;
+      border-radius: 12px;
+      border: 1px solid #e5e7eb;
+      background: white;
+      box-shadow: 0 1px 2px rgba(0,0,0,.04);
+      margin-bottom: 1rem;
+    }
+
+    .muted { color: #6b7280; }
+
+    .month-selector {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-end;
+      flex-wrap: wrap;
+    }
+
+    .month-selector label {
+      display: flex;
+      flex-direction: column;
+      gap: .25rem;
+    }
+
+    .month-selector input {
+      width: 120px;
+      padding: .5rem .75rem;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 1rem;
+    }
+
+    .status {
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 10px;
+      padding: .6rem .75rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: .9em;
+      white-space: pre-wrap;
+      margin-top: 1rem;
+    }
+
+    .success { background: #d1fae5; border-color: #34d399; color: #065f46; }
+    .error { background: #fee2e2; border-color: #f87171; color: #991b1b; }
+    .info { background: #e0f2fe; border-color: #38bdf8; color: #0369a1; }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+
+    .stat-card {
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 1rem;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .stat-label {
+      font-size: .85rem;
+      color: #6b7280;
+      margin-top: .25rem;
+    }
+
+    .links {
+      margin-top: 1.5rem;
+      padding-top: 1rem;
+      border-top: 1px solid #e5e7eb;
+    }
+
+    .links a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .links a:hover {
+      text-decoration: underline;
+    }
+
+    button[disabled] {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <header>
+      <a href="/" style="color: var(--accent); text-decoration: none;">&larr; Back to Nordigen Wizard</a>
+      <h1>Budget Wizard</h1>
+      <p class="muted">Generate budget proposals based on recent spending</p>
+    </header>
+
+    <section class="card">
+      <h3>Generate Budget Proposal</h3>
+      <p>Select a month and generate a budget proposal based on your last 3 months of spending.</p>
+
+      <div class="month-selector">
+        <label>
+          <span class="muted">Year</span>
+          <input type="number" id="year" min="2020" max="2030" />
+        </label>
+        <label>
+          <span class="muted">Month</span>
+          <input type="number" id="month" min="1" max="12" />
+        </label>
+        <button id="generateBtn" onclick="generateProposal()">Generate Proposal</button>
+      </div>
+
+      <div id="result" style="display: none;"></div>
+    </section>
+
+    <section class="card">
+      <h3>How it works</h3>
+      <ol>
+        <li><strong>Generate</strong> — Creates a proposal in the "Budget Staging" sheet</li>
+        <li><strong>Review</strong> — Open the sheet, adjust values, delete unwanted rows</li>
+        <li><strong>Approve</strong> — Use the "Approve Budget" shortcut to move to Financial_Planning</li>
+      </ol>
+
+      <div class="links">
+        <p><strong>Quick links:</strong></p>
+        <ul>
+          <li><a href="#" id="stagingLink" target="_blank">Open Budget Staging sheet</a></li>
+          <li><a href="#" id="planningLink" target="_blank">Open Financial_Planning sheet</a></li>
+        </ul>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // Set default to current month
+    const now = new Date();
+    document.getElementById('year').value = now.getFullYear();
+    document.getElementById('month').value = now.getMonth() + 1;
+
+    async function generateProposal() {
+      const year = document.getElementById('year').value;
+      const month = document.getElementById('month').value.padStart(2, '0');
+      const targetMonth = `${year}${month}`;
+
+      const btn = document.getElementById('generateBtn');
+      const resultDiv = document.getElementById('result');
+
+      btn.disabled = true;
+      btn.textContent = 'Generating...';
+      resultDiv.style.display = 'none';
+
+      try {
+        const resp = await fetch('/api/budget/proposal', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ target_month: targetMonth })
+        });
+
+        const data = await resp.json();
+
+        if (!resp.ok) {
+          resultDiv.innerHTML = `<div class="status error">Error: ${data.error}</div>`;
+          resultDiv.style.display = 'block';
+          return;
+        }
+
+        let statusClass = data.rows_created > 0 ? 'success' : 'info';
+        let html = `<div class="status ${statusClass}">${data.message}</div>`;
+
+        if (data.stats) {
+          html += `
+            <div class="stats">
+              <div class="stat-card">
+                <div class="stat-value">${data.stats.new_categories || 0}</div>
+                <div class="stat-label">New Categories</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">${data.stats.skipped_existing || 0}</div>
+                <div class="stat-label">Already Exist</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-value">${data.stats.skipped_infrequent || 0}</div>
+                <div class="stat-label">Infrequent (skipped)</div>
+              </div>
+            </div>
+          `;
+        }
+
+        if (data.rows_created > 0) {
+          html += `<p style="margin-top: 1rem;">Now open the <a href="#" id="openStaging">Budget Staging sheet</a> to review and adjust.</p>`;
+        }
+
+        resultDiv.innerHTML = html;
+        resultDiv.style.display = 'block';
+
+      } catch (err) {
+        resultDiv.innerHTML = `<div class="status error">Error: ${err.message}</div>`;
+        resultDiv.style.display = 'block';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Generate Proposal';
+      }
+    }
+  </script>
+</body>
+</html>

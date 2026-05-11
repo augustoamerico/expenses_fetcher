@@ -12,5 +12,6 @@ credentials.json
 *.sqlite
 token.pickle
 data/pending_reauths.json
+data/budget_state.json
 example_csv_raw/
 !tools/

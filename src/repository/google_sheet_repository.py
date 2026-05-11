@@ -329,3 +329,99 @@ class GoogleSheetRepository(IRepository):
             data_to_insert,
             f"{self.accounts_balance_sheet_name}!{self.accounts_balance_start_cell}",
         )
+
+    # ==================== Budget Wizard Methods ====================
+
+    def get_expenses_summary_last_n_months(self, n: int) -> List[Dict]:
+        """
+        Get spending grouped by YearMonth, Type, Category for last N months.
+
+        Returns list of dicts: [{"year_month": "202604", "type": "Debt", "category": "Groceries", "total": 150.0}, ...]
+
+        Expenses schema: [Date Capture, Date Auth, Description, Account, Type, Category, Value, Signed Value, YearMonth, BudgetJoiner]
+        Indexes:              0            1           2          3       4       5        6          7            8           9
+        """
+        data = self.get_data(f"{self.expenses_sheet_name}!A2:J")
+
+        if not data:
+            return []
+
+        # Get all unique YearMonths
+        year_months = set()
+        for row in data:
+            if len(row) > 8 and row[8]:
+                year_months.add(str(row[8]))
+
+        if not year_months:
+            return []
+
+        # Get last N months
+        sorted_months = sorted(year_months, reverse=True)
+        target_months = set(sorted_months[:n])
+
+        # Aggregate by YearMonth, Type, Category
+        aggregated = {}
+        for row in data:
+            if len(row) < 9:
+                continue
+            year_month = str(row[8]) if row[8] else ""
+            if year_month not in target_months:
+                continue
+
+            trx_type = str(row[4]) if len(row) > 4 and row[4] else ""
+            category = str(row[5]) if len(row) > 5 and row[5] else ""
+
+            # Use Value (index 6) for total spend
+            try:
+                amount = float(row[6]) if len(row) > 6 and row[6] else 0.0
+            except (ValueError, TypeError):
+                amount = 0.0
+
+            key = (year_month, trx_type, category)
+            if key not in aggregated:
+                aggregated[key] = 0.0
+            aggregated[key] += amount
+
+        # Convert to list of dicts
+        result = []
+        for (year_month, trx_type, category), total in aggregated.items():
+            result.append({
+                "year_month": year_month,
+                "type": trx_type,
+                "category": category,
+                "total": total,
+            })
+
+        return result
+
+    def get_existing_budget_joiners(self, year_month: str) -> List[str]:
+        """
+        Get list of BudgetJoiners that exist in Financial_Planning for a given month.
+
+        Financial_Planning schema: [BudgetJoiner, YearMonth, Type, Category, EstimateValue]
+        """
+        data = self.get_data("Financial_Planning!A2:B")
+
+        if not data:
+            return []
+
+        joiners = []
+        for row in data:
+            if len(row) >= 2 and str(row[1]) == year_month:
+                joiners.append(str(row[0]))
+
+        return joiners
+
+    def push_budget_staging(self, rows: List[List]) -> None:
+        """
+        Append rows to Budget Staging sheet.
+
+        Schema: [BudgetJoiner, YearMonth, Type, Category, EstimateValue]
+        """
+        if not rows:
+            return
+        self.__append_in_range(rows, "Budget Staging!A2")
+
+    def clear_budget_staging(self) -> None:
+        """Clear all data from Budget Staging (keep header)."""
+        self.__clear_range("Budget Staging!A2:E")

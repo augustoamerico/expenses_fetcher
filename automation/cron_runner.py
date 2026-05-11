@@ -32,7 +32,9 @@ import requests
 import yaml
 
 DEFAULT_PENDING_FILE = "data/pending_reauths.json"
+DEFAULT_BUDGET_STATE_FILE = "data/budget_state.json"
 REAUTH_EXPIRY_HOURS = 24
+MONTH_CLOSE_BUFFER_DAYS = 2
 
 # Add project root to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -47,6 +49,7 @@ from src.infrastructure.bank_account_transactions_fetchers.nordigen_token_provid
     NordigenTokenProvider,
 )
 from src.repository.google_sheet_repository import GoogleSheetRepository
+from src.application.budget import generate_budget_proposal
 
 
 log = logging.getLogger(__name__)
@@ -554,6 +557,7 @@ def run_automation(
     config_path: str,
     notifier: NtfyNotifier,
     pending_file: str = DEFAULT_PENDING_FILE,
+    budget_state_file: str = DEFAULT_BUDGET_STATE_FILE,
 ) -> bool:
     """
     Main automation entry point.
@@ -638,6 +642,13 @@ def run_automation(
         # Close connections
         expense_fetcher.close_all_connections()
 
+        # Check budget status
+        try:
+            repo = list(expense_fetcher.repositories.values())[0]
+            check_and_handle_budget(repo, notifier, budget_state_file)
+        except Exception as e:
+            log.error(f"Budget check failed: {e}", exc_info=True)
+
         log.info("Automated sync completed")
         return len(results["auth_expired"]) == 0 and len(results["errors"]) == 0
 
@@ -650,6 +661,216 @@ def run_automation(
             tags=["x", "rotating_light"],
         )
         return False
+
+
+# ==================== Budget Check Logic ====================
+
+def load_budget_state(file_path: str) -> Dict[str, Any]:
+    """Load budget state from JSON file."""
+    if not os.path.exists(file_path):
+        return {}
+    try:
+        with open(file_path, "r") as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return {}
+
+
+def save_budget_state(file_path: str, state: Dict[str, Any]) -> None:
+    """Save budget state to JSON file."""
+    os.makedirs(os.path.dirname(file_path), exist_ok=True)
+    with open(file_path, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+def is_previous_month_closed(repo: GoogleSheetRepository, current_month: str) -> bool:
+    """
+    Check if previous month is closed based on Last Sync Date.
+
+    A month is closed when all active accounts have Last Sync Date > month end + buffer.
+    """
+    # Calculate previous month
+    year = int(current_month[:4])
+    month = int(current_month[4:6])
+    if month == 1:
+        prev_year, prev_month = year - 1, 12
+    else:
+        prev_year, prev_month = year, month - 1
+
+    # Get last day of previous month + buffer
+    if prev_month == 12:
+        next_month_start = datetime(prev_year + 1, 1, 1)
+    else:
+        next_month_start = datetime(prev_year, prev_month + 1, 1)
+
+    prev_month_end = next_month_start - timedelta(days=1)
+    close_threshold = prev_month_end + timedelta(days=MONTH_CLOSE_BUFFER_DAYS)
+
+    # Get Data sheet: Sources (A), Last Date by Source (B), Deactivated at Date (C), Last Sync Date (D)
+    data = repo.get_data(f"{repo.metadata_sheet_name}!A2:D")
+
+    if not data:
+        return False
+
+    for row in data:
+        if len(row) < 4:
+            continue
+        source = row[0] if row[0] else ""
+        deactivated = row[2] if len(row) > 2 and row[2] else ""
+        last_sync = row[3] if len(row) > 3 and row[3] else ""
+
+        # Skip empty rows or deactivated accounts
+        if not source or deactivated:
+            continue
+
+        # Parse last sync date
+        if not last_sync:
+            log.debug(f"Account {source} has no Last Sync Date")
+            return False
+
+        try:
+            # Handle both datetime and date formats
+            sync_str = str(last_sync).split(" ")[0]  # Take date part only
+            sync_date = datetime.strptime(sync_str, "%Y-%m-%d")
+        except ValueError:
+            log.warning(f"Could not parse Last Sync Date for {source}: {last_sync}")
+            return False
+
+        if sync_date.date() <= close_threshold.date():
+            log.debug(f"Account {source} Last Sync {sync_date.date()} <= threshold {close_threshold.date()}")
+            return False
+
+    return True
+
+
+def get_budget_staging_months(repo: GoogleSheetRepository) -> set:
+    """Get set of YearMonths that have entries in Budget Staging."""
+    data = repo.get_data("Budget Staging!B2:B")
+    months = set()
+    for row in data:
+        if row and row[0]:
+            months.add(str(row[0]))
+    return months
+
+
+def check_and_handle_budget(
+    repo: GoogleSheetRepository,
+    notifier: NtfyNotifier,
+    budget_state_file: str,
+) -> None:
+    """
+    Check budget status and take appropriate action.
+
+    State machine:
+    1. If previous month not closed (after 3rd) → nudge to close
+    2. If no budget and no staging for current month → generate proposal
+    3. If staging exists but no budget → nudge to approve
+    4. If budget exists → once per month, check for gaps
+    """
+    today = datetime.now()
+    current_month = today.strftime("%Y%m")
+
+    budget_state = load_budget_state(budget_state_file)
+
+    # Get existing budgets and staging for current month
+    existing_budget_joiners = repo.get_existing_budget_joiners(current_month)
+    staging_months = get_budget_staging_months(repo)
+    has_budget = len(existing_budget_joiners) > 0
+    has_staging = current_month in staging_months
+
+    log.info(f"Budget check for {current_month}: has_budget={has_budget}, has_staging={has_staging}")
+
+    # State 1: Check if previous month is closed (only after 3rd of month)
+    if today.day > 3 and not is_previous_month_closed(repo, current_month):
+        prev_month_name = (today.replace(day=1) - timedelta(days=1)).strftime("%B %Y")
+        log.info(f"Previous month {prev_month_name} not yet closed")
+        notifier.send(
+            title="Month not closed",
+            message=f"{prev_month_name} is not yet closed. Sync all accounts.",
+            priority="default",
+            tags=["calendar"],
+        )
+        return
+
+    # State 2: No budget and no staging → generate proposal
+    if not has_budget and not has_staging:
+        log.info(f"Generating budget proposal for {current_month}")
+        try:
+            expenses_summary = repo.get_expenses_summary_last_n_months(3)
+            proposal_rows, stats = generate_budget_proposal(
+                expenses_summary=expenses_summary,
+                existing_joiners=[],
+                target_month=current_month,
+            )
+
+            if proposal_rows:
+                repo.clear_budget_staging()
+                repo.push_budget_staging(proposal_rows)
+                notifier.send(
+                    title="Budget proposal ready",
+                    message=f"{current_month}: {len(proposal_rows)} categories proposed. Review and approve.",
+                    priority="default",
+                    tags=["clipboard"],
+                )
+            else:
+                log.info("No categories to propose for budget")
+        except Exception as e:
+            log.error(f"Failed to generate budget proposal: {e}", exc_info=True)
+        return
+
+    # State 3: Staging exists but no budget → nudge to approve
+    if has_staging and not has_budget:
+        log.info(f"Budget staging exists for {current_month}, nudging to approve")
+        notifier.send(
+            title="Approve budget",
+            message=f"Budget proposal for {current_month} is waiting. Review and approve.",
+            priority="default",
+            tags=["clipboard"],
+        )
+        return
+
+    # State 4: Budget exists → check for gaps (once per month)
+    if has_budget:
+        last_gap_check = budget_state.get("last_gap_check")
+
+        if last_gap_check != current_month:
+            log.info(f"Checking for budget gaps in {current_month}")
+            try:
+                expenses_summary = repo.get_expenses_summary_last_n_months(3)
+                gap_rows, stats = generate_budget_proposal(
+                    expenses_summary=expenses_summary,
+                    existing_joiners=existing_budget_joiners,
+                    target_month=current_month,
+                )
+
+                # Update state - we've done the gap check
+                budget_state["last_gap_check"] = current_month
+                save_budget_state(budget_state_file, budget_state)
+
+                if gap_rows:
+                    repo.clear_budget_staging()
+                    repo.push_budget_staging(gap_rows)
+                    notifier.send(
+                        title="Budget gaps found",
+                        message=f"{len(gap_rows)} new categories for {current_month}. Review and approve.",
+                        priority="default",
+                        tags=["clipboard"],
+                    )
+                else:
+                    log.info("No budget gaps found")
+            except Exception as e:
+                log.error(f"Failed to check budget gaps: {e}", exc_info=True)
+            return
+
+        # State 5: If staging still has content, nudge to approve/remove
+        if has_staging:
+            log.info(f"Budget staging still has content for {current_month}")
+            notifier.send(
+                title="Budget staging pending",
+                message=f"Budget Staging has entries for {current_month}. Approve or remove them.",
+                priority="default",
+                tags=["clipboard"],
+            )
 
 
 def main():
@@ -672,6 +893,12 @@ def main():
         default=DEFAULT_PENDING_FILE,
         help=f"Path to pending re-auths JSON file (default: {DEFAULT_PENDING_FILE})",
     )
+    parser.add_argument(
+        "--budget-state-file",
+        dest="budget_state_file",
+        default=DEFAULT_BUDGET_STATE_FILE,
+        help=f"Path to budget state JSON file (default: {DEFAULT_BUDGET_STATE_FILE})",
+    )
     args = parser.parse_args()
 
     # Setup logging
@@ -687,7 +914,7 @@ def main():
     notifier = NtfyNotifier(topic=ntfy_topic, server=ntfy_server)
 
     # Run automation
-    success = run_automation(args.config_file, notifier, args.pending_file)
+    success = run_automation(args.config_file, notifier, args.pending_file, args.budget_state_file)
     sys.exit(0 if success else 1)
 
 
